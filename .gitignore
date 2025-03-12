@@ -1,0 +1,5 @@
+build/
+
+subprojects/thread-manager/
+subprojects/simple-keyboard/
+subprojects/gtk4-settings-library/

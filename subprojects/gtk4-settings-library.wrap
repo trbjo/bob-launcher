@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/trbjo/gtk4-settings-library.git
+revision = main
+depth = 1
+
+[provide]
+settings = settings_dep

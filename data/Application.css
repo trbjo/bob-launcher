@@ -1,0 +1,199 @@
+@define-color shadow alpha(black, 0.6);
+@define-color inactive_shadow alpha(black, 0.3);
+@define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.8);
+
+.tiled-left,
+.tiled-top,
+.tiled-bottom,
+.tiled-right {
+    box-shadow: none;
+}
+
+window#launcher { background: none; }
+
+window#launcher match-row {
+    background: @base_transparent;
+}
+
+window#launcher match-row:selected {
+    background: @selected_match_row;
+}
+
+#result-box matchrow-separator:first-child,
+#result-box matchrow-separator:selected {
+    background: @separator_color;
+}
+
+#result-box matchrow-separator {
+    min-height: 1px;
+    background: linear-gradient(to right, @base_transparent 4%, @separator_color 20%, @separator_color 80%, @base_transparent 96%);
+}
+
+window#launcher.client-side-shadow #main-container {
+    box-shadow: 0 6px 30px 0px @shadow;
+    margin: 46px 40px 46px 40px;
+}
+
+window#launcher.client-side-shadow:backdrop #main-container {
+    box-shadow: 0 6px 30px 0px @inactive_shadow;
+}
+
+window#launcher.client-side-border #main-container {
+    border-radius: 10px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: @main_container_border;
+}
+
+match-row {
+    color: @unmatched_color;
+}
+
+#main-container {
+    transition-property: box-shadow, margin, border-radius;
+    transition-timing-function: ease-out;
+    transition-duration: 300ms;
+}
+
+window#launcher text-image,
+window#launcher match-row-label,
+#query-container {
+    transition-duration: 300ms;
+}
+
+window#launcher text-image,
+window#launcher match-row-label {
+    transition-property: opacity;
+}
+
+window#launcher:backdrop text-image,
+window#launcher:backdrop match-row-label {
+    opacity: 0.6;
+}
+
+#query-container {
+    background: @bg_transparent;
+    padding: 8px 8px;
+}
+
+#query-container:backdrop {
+    color: @theme_unfocused_fg_color;
+}
+
+#query-container > #draggable-image {
+    padding-left: 4px;
+}
+
+#query-container {
+    font-size: 24pt;
+    font-weight: 300;
+}
+
+#progress-indicator {
+    min-height: 1px;
+}
+
+match-row match-row-label.description text-image {
+    min-width: 12px;
+    min-height: 12px;
+}
+
+match-row match-row-label.description {
+    font-size: 12px;
+}
+
+match-row .description .fragment {
+    margin: 0 0 0 2px;
+}
+
+match-row .description .fragment:first-child {
+    margin: 0;
+}
+
+match-row match-row-label.description label.fragment:hover:not(:first-child) {
+    text-decoration: underline;
+}
+
+match-row > .title,
+match-row > .description {
+    margin-left: 8px;
+}
+
+match-row {
+    padding: 4px 8px;
+}
+
+window#launcher.highlighted match-row:selected .shortcut {
+    color: mix(@theme_base_color, @theme_text_color, 0.78);
+}
+
+match-row row-number {
+    min-width: 15px;
+}
+
+window#launcher.highlighted match-row label.shortcut {
+    min-width: 15px;
+    margin-left: 8px;
+}
+
+match-row .shortcut {
+    color: @theme_unfocused_fg_color;
+    transition: opacity 60ms, font-size 0ms linear 0ms, margin 60ms;
+    opacity: 1.0;
+}
+
+window#launcher tooltip > box {
+    border-radius: 10px;
+}
+
+window#launcher tooltip > box > label.tooltip-label {
+    margin: 8px;
+}
+
+window#launcher tooltip > box > widget.tooltip-image {
+    border-radius: 10px;
+    margin: 0;
+    border: 1px solid @separator_color;
+}
+
+window#launcher tooltip > box {
+    padding: 0;
+    border-radius: 10px;
+}
+
+window#launcher tooltip {
+    font-family: monospace;
+}
+
+window#launcher:not(.highlighted) match-row .shortcut {
+    transition: opacity 60ms, font-size 0ms linear 60ms, min-width 60ms linear 60ms, margin 120ms;
+    min-width: 0;
+    font-size: 0;
+    opacity: 0.0;
+}
+
+@keyframes cursor-blink {
+    15% { opacity: 1.0; }
+    30% { opacity: 0.0; }
+    70% { opacity: 0.0; }
+    85% { opacity: 1.0; }
+}
+
+#text-cursor:backdrop {
+    opacity: 0.0;
+}
+
+#text-cursor {
+    animation: none;
+    background-color: @theme_text_color;
+    min-width: 1.5px;
+    transition: opacity 500ms;
+    opacity: 1.0;
+}
+
+#text-cursor.blinking:not(:backdrop) {
+    animation-name: cursor-blink;
+    animation-duration: 1.2s;
+    animation-delay: 500ms;
+    animation-iteration-count: 10;
+}

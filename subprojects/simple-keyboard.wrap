@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/trbjo/gtk4-simple-keyboard.git
+revision = main
+depth = 1
+
+[provide]
+simple-keyboard = simple_keyboard_dep

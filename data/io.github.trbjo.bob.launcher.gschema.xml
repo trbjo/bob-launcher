@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <enum id="io.github.trbjo.bob.launcher.gtk-layer-shell-keyboard-mode">
+    <value nick="exclusive" value="1"/>
+    <value nick="on-demand" value="2"/>
+  </enum>
+
+  <schema id="io.github.trbjo.bob.launcher" path="/io/github/trbjo/bob/launcher/">
+    <child name="layershell" schema="io.github.trbjo.bob.launcher.layershell"/>
+    <child name="ui" schema="io.github.trbjo.bob.launcher.ui"/>
+    <child name="keybindings" schema="io.github.trbjo.bob.launcher.keybindings"/>
+    <child name="plugins" schema="io.github.trbjo.bob.launcher.plugins"/>
+  </schema>
+
+  <schema id="io.github.trbjo.bob.launcher.layershell" path="/io/github/trbjo/bob/launcher/layershell/">
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Enabled</summary>
+      <description>For supported compositors, enable Layershell. Requires a restart to take effect.</description>
+    </key>
+    <child name="layershell" schema="io.github.trbjo.bob.launcher.layershell.layershell"/>
+  </schema>
+
+  <schema id="io.github.trbjo.bob.launcher.layershell.layershell" path="/io/github/trbjo/bob/launcher/layershell/layershell/">
+    <key name="keyboard-mode" enum="io.github.trbjo.bob.launcher.gtk-layer-shell-keyboard-mode">
+      <default>'on-demand'</default>
+      <summary>Keyboard mode</summary>
+    </key>
+    <key name="points" type="(dd)">
+      <description>The last stored x and y position of BobLauncher. Used internally.</description>
+      <default>(0.5, 0.20)</default>
+    </key>
+    <key name="anchor-points" type="(ii)">
+      <summary>Anchor Points</summary>
+      <description>Snap around these display percentages</description>
+      <default>(50, 20)</default>
+    </key>
+    <key name="anchor-snap-threshold" type="i">
+      <summary>Anchor Snap Threshold</summary>
+      <description>The drag threshold in pixels</description>
+      <default>20</default>
+    </key>
+  </schema>
+
+  <schema id="io.github.trbjo.bob.launcher.ui" path="/io/github/trbjo/bob/launcher/ui/">
+    <key name="hide-after-dnd-success" type="b">
+      <default>false</default>
+      <summary>Hide BobLauncher after successful drag and drop</summary>
+      <description>Whether BobLauncher will hide after a successful drag and drop operation. This is disabled by default when the window is inactive</description>
+    </key>
+    <key name="box-size" type="i">
+      <default>7</default>
+      <range min="1" max="10"/>
+      <summary>Maximum visible rows</summary>
+      <description>The maximum number of result rows displayed in the launcher window. The number of visible rows might be shorter, if there are not enough matches.</description>
+    </key>
+    <key name="width" type="i">
+      <default>640</default>
+      <range min="200" max="1200"/>
+      <summary>Main window width</summary>
+    </key>
+    <key name="accent-color" type="s">
+      <default>'#1A5FB4'</default>
+      <summary>Accent Color</summary>
+    </key>
+    <key name="opacity" type="d">
+      <default>1.0</default>
+      <range min="0.0" max="1.0"/>
+      <summary>Opacity</summary>
+    </key>
+    <key name="shortcut-indicator" type="s">
+      <default>'⌘'</default>
+      <summary>Shortcut Indicator</summary>
+      <description>The text shown before the row number on the right side of matches.</description>
+    </key>
+    <key name="css-sheet" type="s">
+      <default>''</default>
+      <summary>Custom CSS sheet</summary>
+      <description>Path to a custom CSS file for styling the launcher interface. If empty, the default stylesheet will be used. See github for the default stylesheet.</description>
+    </key>
+    <key name="match-description-next-to-title" type="b">
+      <default>false</default>
+      <summary>Match description layout</summary>
+      <description>If true, shows match descriptions next to titles (Krunner style). If false, shows them below (Alfred style).</description>
+    </key>
+    <key name="match-icon-size" type="i">
+      <default>40</default>
+      <range min="16" max="256"/>
+      <summary>Match icon size</summary>
+    </key>
+    <key name="client-side-border" type="b">
+      <default>true</default>
+      <summary>Client Side Borders</summary>
+      <description>Whether BobLauncher should try to draw its own borders. If you use your own stylesheet, this won't work.</description>
+    </key>
+    <key name="client-side-shadow" type="b">
+      <default>true</default>
+      <summary>Client Side Shadow</summary>
+      <description>Whether BobLauncher should try to draw its own shadow. If you use your own stylesheet, this won't work.</description>
+    </key>
+  </schema>
+
+  <schema id="io.github.trbjo.bob.launcher.keybindings" path="/io/github/trbjo/bob/launcher/keybindings/">
+    <key name="activate" type="as">
+      <default>['&lt;Control&gt;space']</default>
+      <summary>Hide BobLauncher</summary>
+      <description>Keyboard shortcuts to hide BobLauncher window.</description>
+    </key>
+    <key name="execute" type="as">
+      <default>['Return']</default>
+      <summary>Execute selected item</summary>
+      <description>Keyboard shortcuts to execute the currently selected item.</description>
+    </key>
+    <key name="execute-without-hide" type="as">
+      <default>['&lt;Control&gt;Return']</default>
+      <summary>Execute without hiding</summary>
+      <description>Keyboard shortcuts to execute the selected item without hiding the launcher window.</description>
+    </key>
+    <key name="show-settings" type="as">
+      <default>['&lt;Control&gt;comma']</default>
+      <summary>Show Settings Window</summary>
+    </key>
+    <key name="delete-char-backward" type="as">
+      <default>['BackSpace']</default>
+      <summary>Delete character backword</summary>
+      <description>Keyboard shortcuts to delete the character before the cursor.</description>
+    </key>
+    <key name="delete-char-forward" type="as">
+      <default>['Delete']</default>
+      <summary>Delete character forward</summary>
+      <description>Keyboard shortcuts to delete the character after the cursor.</description>
+    </key>
+    <key name="delete-word" type="as">
+      <default>['&lt;Control&gt;BackSpace']</default>
+      <summary>Delete word</summary>
+      <description>Keyboard shortcuts to delete the word before the cursor.</description>
+    </key>
+    <key name="char-left" type="as">
+      <default>['Left']</default>
+      <summary>Move cursor left</summary>
+    </key>
+    <key name="char-right" type="as">
+      <default>['Right']</default>
+      <summary>Move cursor left</summary>
+    </key>
+    <key name="word-left" type="as">
+      <default>['&lt;Control&gt;Left']</default>
+      <summary>Move cursor left</summary>
+    </key>
+    <key name="word-right" type="as">
+      <default>['&lt;Control&gt;Right']</default>
+      <summary>Move cursor left</summary>
+    </key>
+    <key name="line-begin" type="as">
+      <default>['&lt;Control&gt;A']</default>
+      <summary>Move cursor to BOL</summary>
+    </key>
+    <key name="line-end" type="as">
+      <default>['&lt;Control&gt;E']</default>
+      <summary>Move cursor to EOL</summary>
+    </key>
+    <key name="next-match" type="as">
+      <default>['Down']</default>
+      <summary>Next match</summary>
+      <description>Keyboard shortcuts to go to the next match in the results list.</description>
+    </key>
+    <key name="prev-match" type="as">
+      <default>['Up']</default>
+      <summary>Previous match</summary>
+      <description>Keyboard shortcuts to go to the previous match in the results list.</description>
+    </key>
+    <key name="first-match" type="as">
+      <default>['&lt;Alt&gt;a']</default>
+      <summary>First match</summary>
+      <description>Keyboard shortcuts to go to the first match in the results list.</description>
+    </key>
+    <key name="last-match" type="as">
+      <default>['&lt;Alt&gt;e']</default>
+      <summary>Last match</summary>
+      <description>Keyboard shortcuts to go to the last match in the results list.</description>
+    </key>
+    <key name="page-up" type="as">
+      <default>['Page_Up']</default>
+      <summary>Page up</summary>
+      <description>Keyboard shortcuts to scroll up one page in the results list.</description>
+    </key>
+    <key name="page-down" type="as">
+      <default>['Page_Down']</default>
+      <summary>Page down</summary>
+      <description>Keyboard shortcuts to scroll down one page in the results list.</description>
+    </key>
+    <key name="next-pane" type="as">
+      <default>['Tab']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="prev-pane" type="as">
+      <default>['&lt;Shift&gt;ISO_Left_Tab']</default>
+      <summary>Previous pane</summary>
+      <description>Keyboard shortcuts to switch to the previous pane or section in the launcher.</description>
+    </key>
+    <key name="clear-search-or-hide" type="as">
+      <default>['Escape']</default>
+      <summary>Clear search or hide</summary>
+      <description>Keyboard shortcuts to clear the search input or hide the launcher if the input is empty.</description>
+    </key>
+    <key name="paste" type="as">
+      <default>['&lt;Control&gt;v']</default>
+      <summary>Paste</summary>
+      <description>Keyboard shortcuts to paste text from the clipboard into the search input.</description>
+    </key>
+    <key name="paste-selection" type="as">
+      <default>['&lt;Shift&gt;Insert']</default>
+      <summary>Paste selection</summary>
+      <description>Keyboard shortcuts to paste the currently selected text into the search input.</description>
+    </key>
+    <key name="quit" type="as">
+      <default>['&lt;Control&gt;q']</default>
+      <summary>Quit BobLauncher</summary>
+      <description>Keyboard shortcuts to completely exit the BobLauncher application.</description>
+    </key>
+    <key name="highlight-match" type="as">
+      <default>['Control_L']</default>
+      <summary>Match highlight</summary>
+      <description>Keyboard shortcuts to highlight matches or activate a special highlight mode.</description>
+    </key>
+    <key name="highlight-match-release" type="as">
+      <default>['&lt;Control&gt;Control_L']</default>
+      <summary>Release match highlight</summary>
+      <description>Keyboard shortcuts to deactivate the match highlight feature when released.</description>
+    </key>
+    <key name="match-1" type="as">
+      <default>['&lt;Control&gt;1']</default>
+      <summary>Select first match</summary>
+      <description>Keyboard shortcuts to select the first match in the results list.</description>
+    </key>
+    <key name="match-2" type="as">
+      <default>['&lt;Control&gt;2']</default>
+      <summary>Select second match</summary>
+      <description>Keyboard shortcuts to select the second match in the results list.</description>
+    </key>
+    <key name="match-3" type="as">
+      <default>['&lt;Control&gt;3']</default>
+      <summary>Select third match</summary>
+      <description>Keyboard shortcuts to select the third match in the results list.</description>
+    </key>
+    <key name="match-4" type="as">
+      <default>['&lt;Control&gt;4']</default>
+      <summary>Select fourth match</summary>
+      <description>Keyboard shortcuts to select the fourth match in the results list.</description>
+    </key>
+    <key name="match-5" type="as">
+      <default>['&lt;Control&gt;5']</default>
+      <summary>Select fifth match</summary>
+      <description>Keyboard shortcuts to select the fifth match in the results list.</description>
+    </key>
+    <key name="match-6" type="as">
+      <default>['&lt;Control&gt;6']</default>
+      <summary>Select sixth match</summary>
+      <description>Keyboard shortcuts to select the sixth match in the results list.</description>
+    </key>
+    <key name="match-7" type="as">
+      <default>['&lt;Control&gt;7']</default>
+      <summary>Select seventh match</summary>
+      <description>Keyboard shortcuts to select the seventh match in the results list.</description>
+    </key>
+    <key name="match-8" type="as">
+      <default>['&lt;Control&gt;8']</default>
+      <summary>Select eighth match</summary>
+      <description>Keyboard shortcuts to select the eighth match in the results list.</description>
+    </key>
+    <key name="match-9" type="as">
+      <default>['&lt;Control&gt;9']</default>
+      <summary>Select ninth match</summary>
+      <description>Keyboard shortcuts to select the ninth match in the results list.</description>
+    </key>
+    <key name="match-10" type="as">
+      <default>['&lt;Control&gt;0']</default>
+      <summary>Select tenth match</summary>
+      <description>Keyboard shortcuts to select the tenth match in the results list.</description>
+    </key>
+  </schema>
+</schemalist>

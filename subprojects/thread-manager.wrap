@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/trbjo/thread-manager.git
+revision = main
+depth = 1
+
+[provide]
+thread-manager = thread_manager_dep
