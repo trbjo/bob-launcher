@@ -6,6 +6,8 @@ A GPU-accelerated launcher using Gtk4 and Vala with performance critical parts w
 
 ## Highlights
 
+https://github.com/user-attachments/assets/f157d529-9b19-46ac-add1-992e1e476a67
+
 - Beautiful design out of the box -- or hand roll your own CSS!
 - Simple controls: there is only `bob-launcher`. Bind it to your preferred keybindings, launch it in background as a service with `bob-launcher --gapplication-service`, or launch plugins directly using the syntax `bob-launcher --select-plugin <plugin> [query]`.
 - High quality plugins. Plugins have been specifically crafted for BobLauncher, many of which utilize multiprocessing with the sharded search.
