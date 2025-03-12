@@ -1,6 +1,6 @@
 # BobLauncher
 
-This is a Wayland launcher inspired by the venerable Synapse launcher.
+This is a Wayland launcher inspired by the venerable [Synapse Launcher](https://launchpad.net/synapse-project).
 
 A GPU-accelerated launcher using Gtk4 and Vala with performance critical parts written in pure C. BobLauncher aims to provide a useful, user friendly, beautiful, and fast launcher.
 
@@ -43,7 +43,7 @@ bob-launcher --select-plugin <plugin> [query] # Launch a specific plugin
 
 ## Plugins
 
-Extend BobLauncher's functionality with plugins. Check out the available plugins at [GitHub](https://github.com/trbjo/bob-launcher-plugins)
+You will need plugins to be able to do anything useful. Check out the available plugins at [GitHub](https://github.com/trbjo/bob-launcher-plugins)
 
 ## Performance
 
@@ -52,8 +52,3 @@ BobLauncher is built with performance as a primary goal. Performance-critical pa
 ## Contributing
 
 Contributions are welcome! We are still in beta, so there will be bugs.
-
-## Acknowledgments
-
-- Inspired by the original [Synapse Launcher](https://launchpad.net/synapse-project)
-- Fuzzy matching algorithm adapted from [fzy](https://github.com/jhawthorn/fzy)
