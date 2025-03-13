@@ -118,7 +118,6 @@ stripped_lib = custom_target(
     'stripped_lib',
     input: launcher_lib,
     output: 'launcher.bin',
-    command: ['strip', '-o', '@OUTPUT@', '@INPUT@'],
     command: get_option('buildtype') != 'debug' ? ['strip', '-o', '@OUTPUT@', '@INPUT@'] : ['cp', '@INPUT@', '@OUTPUT@'],
     build_by_default: true
 )
