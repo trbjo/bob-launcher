@@ -10,7 +10,7 @@ namespace CSS {
 @define-color easened_accent_bg      alpha(@easened_accent, %.2f);
 
 @define-color main_container_border  alpha(mix(@theme_base_color, #000, 0.23), %.2f);
-@define-color separator_color        alpha(mix(@theme_selected_bg_color, @borders, 0.97), %.2f);
+@define-color separator_color        alpha(mix(@theme_base_color, #999, 0.32), %.2f);
 @define-color selected_match_row     alpha(mix(@theme_base_color, @theme_text_color, 0.12), %.2f);
 """;
 
