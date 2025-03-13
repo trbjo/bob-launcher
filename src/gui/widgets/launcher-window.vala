@@ -114,7 +114,6 @@ namespace BobLauncher {
             this.remove_css_class("completed");
             base.hide();
             State.reset();
-            if (appsettings.layershell.enabled) GtkLayerShell.set_margin(this, GtkLayerShell.Edge.BOTTOM, 0);
         }
 
         public override void show() {

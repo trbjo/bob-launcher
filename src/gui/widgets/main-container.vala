@@ -84,12 +84,12 @@ namespace BobLauncher {
         private void setup_click_controller() {
             Gtk.GestureClick click = new Gtk.GestureClick();
             click.set_button(0);
-            add_controller(click);
+            result_box.add_controller(click);
             click.released.connect(handle_click_release);
         }
 
         private void handle_click_release(Gtk.GestureClick controller, int n_press, double x, double y) {
-            unowned Gtk.Widget? picked_widget = pick(x, y, Gtk.PickFlags.DEFAULT);
+            unowned Gtk.Widget? picked_widget = result_box.pick(x, y, Gtk.PickFlags.DEFAULT);
             if (picked_widget == null) return;
             var action = (FragmentAction)picked_widget.get_data<Object>("fragment");
             if (action != null) {
