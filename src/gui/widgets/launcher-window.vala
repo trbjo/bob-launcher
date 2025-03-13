@@ -104,10 +104,10 @@ namespace BobLauncher {
             width_handle.allocate(handle_size, (int)inner.size.height, baseline, width_transform);
         }
 
+        // don't snapshot the handles
         protected override void snapshot(Gtk.Snapshot snapshot) {
             snapshot_child(child, snapshot);
         }
-
 
         internal override void hide() {
             ((Gdk.Wayland.Toplevel) this.get_surface()).restore_system_shortcuts();
