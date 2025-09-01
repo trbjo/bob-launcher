@@ -2,18 +2,28 @@ namespace BobLauncher {
     internal class LauncherWindow : Gtk.Window {
         private static int last_width;
         private static int last_height;
-        private static UpDownResizeHandle? up_down_handle;
-        private static WidthResizeHandle? width_handle;
+        public static UpDownResizeHandle? up_down_handle;
+        public static WidthResizeHandle? width_handle;
         private static unowned AppSettings? appsettings;
         private static GLib.Settings? settings;
+
+        public bool client_side_shadow { get; set; }
+        public bool inhibit_system_shortcuts { get; set; }
 
         construct {
             appsettings = AppSettings.get_default();
 
             settings = new GLib.Settings(BOB_LAUNCHER_APP_ID + ".ui");
 
-            settings.changed["client-side-shadow"].connect(handle_shadow_settings);
+            settings.bind("client-side-shadow", this, "client_side_shadow", GLib.SettingsBindFlags.GET);
+            settings.changed["client-side-shadow"].connect_after(handle_shadow_settings);
             handle_shadow_settings();
+
+            var gtk_settings = Gtk.Settings.get_default();
+            settings.bind("prefer-dark-theme", gtk_settings, "gtk-application-prefer-dark-theme", GLib.SettingsBindFlags.DEFAULT);
+
+            settings.bind("inhibit-system-shortcuts", this, "inhibit_system_shortcuts", GLib.SettingsBindFlags.GET);
+            settings.changed["inhibit-system-shortcuts"].connect_after(handle_shortcut_inhibit);
 
             settings.changed["client-side-border"].connect(handle_border_settings);
             handle_border_settings();
@@ -37,8 +47,9 @@ namespace BobLauncher {
             set_default_size(1, 1);
 
             LayerShell.setup_layer_shell(this, appsettings);
-            map.connect(disable_controllers);
+            disable_controllers();
             map.connect_after(enable_custom_controller);
+            map.connect_after(setup_monitor_watcher);
         }
 
         private void handle_border_settings() {
@@ -49,8 +60,19 @@ namespace BobLauncher {
             }
         }
 
+        private void handle_shortcut_inhibit() {
+            var surf = this.get_surface() as Gdk.Wayland.Toplevel;
+            if (surf == null) return;
+
+            if (inhibit_system_shortcuts && visible) {
+                surf.inhibit_system_shortcuts(null);
+            } else {
+                surf.restore_system_shortcuts();
+            }
+        }
+
         private void handle_shadow_settings() {
-            if (settings.get_boolean("client-side-shadow")) {
+            if (client_side_shadow) {
                 this.add_css_class("client-side-shadow");
             } else {
                 this.remove_css_class("client-side-shadow");
@@ -60,15 +82,28 @@ namespace BobLauncher {
         private void disable_controllers() {
             var controller_list = this.observe_controllers();
             for (int i = (int)controller_list.get_n_items() - 1; i >= 0; i--) {
-                Gtk.EventController controller = (Gtk.EventController)controller_list.get_item((uint)i);
-                controller.set_propagation_phase(Gtk.PropagationPhase.NONE);
-                controller.reset();
-                ((Gtk.Widget)this).remove_controller(controller);
+                Gtk.EventController? controller = controller_list.get_item((uint)i) as Gtk.EventController;
+                if (controller != null) {
+                    ((Gtk.Widget)this).remove_controller(controller);
+                }
             }
-            map.disconnect(disable_controllers);
+        }
+
+        private void setup_monitor_watcher() {
+            map.disconnect(setup_monitor_watcher);
+            var surf = this.get_surface() as Gdk.Surface;
+            surf.enter_monitor.connect_after(on_monitor_changed);
+        }
+
+        private void on_monitor_changed() {
+            Idle.add(() => {
+                LayerShell.adjust_layershell_margins(this, last_width, last_height);
+                return false;
+            }, GLib.Priority.LOW);
         }
 
         private void enable_custom_controller() {
+            map.disconnect(enable_custom_controller);
             var native = this.get_native();
             var gdk_surface = native.get_surface();
             unowned var wayland_surface = ((Gdk.Wayland.Surface)gdk_surface).get_wl_surface();
@@ -80,46 +115,45 @@ namespace BobLauncher {
                 Controller.handle_focus_enter,
                 Controller.handle_focus_leave
             );
-
-            map.disconnect(enable_custom_controller);
         }
 
-        private const int handle_size = 4;
         Graphene.Rect inner;
         Gsk.Transform height_transform;
         Gsk.Transform width_transform;
 
         protected override void size_allocate(int base_width, int base_height, int baseline) {
             base.size_allocate(base_width, base_height, baseline);
+
+            if (!child.compute_bounds(this, out inner)) critical("could not calculate bounds");
+            int width_handle_width, up_down_handle_height;
+            width_handle.measure(Gtk.Orientation.HORIZONTAL, -1, null, out width_handle_width, null, null);
+            up_down_handle.measure(Gtk.Orientation.VERTICAL, -1, null, out up_down_handle_height, null, null);
+            height_transform = new Gsk.Transform().translate({(int)inner.origin.x, (int)(inner.size.height + inner.origin.y) - up_down_handle_height});
+            width_transform = new Gsk.Transform().translate({(int)(inner.size.width + inner.origin.x) - width_handle_width, (int)inner.origin.y});
+
+            up_down_handle.allocate((int)inner.size.width, up_down_handle_height, baseline, height_transform);
+            width_handle.allocate(width_handle_width, (int)inner.size.height, baseline, width_transform);
             if (last_width != base_width || base_height != last_height) {
-                if (!child.compute_bounds(this, out inner)) critical("could not calculate bounds");
-                height_transform = new Gsk.Transform().translate({(int)inner.origin.x, (int)(inner.size.height + inner.origin.y) - handle_size / 2});
-                width_transform = new Gsk.Transform().translate({(int)(inner.size.width + inner.origin.x) - handle_size / 2, (int)inner.origin.y});
                 last_width = base_width;
                 last_height = base_height;
-                LayerShell.adjust_layershell_margins(App.main_win, base_width, base_height);
-                InputRegion.set_input_regions(App.main_win, base_width, base_height);
+                LayerShell.adjust_layershell_margins(this, base_width, base_height);
+                if (client_side_shadow) InputRegion.set_input_regions(this, base_width, base_height);
             }
-            up_down_handle.allocate((int)inner.size.width, handle_size, baseline, height_transform);
-            width_handle.allocate(handle_size, (int)inner.size.height, baseline, width_transform);
-        }
-
-        // don't snapshot the handles
-        protected override void snapshot(Gtk.Snapshot snapshot) {
-            snapshot_child(child, snapshot);
         }
 
         internal override void hide() {
             ((Gdk.Wayland.Toplevel) this.get_surface()).restore_system_shortcuts();
-            this.remove_css_class("completed");
             base.hide();
             State.reset();
         }
 
         public override void show() {
             base.show();
-            var surf = ((Gdk.Wayland.Toplevel) get_surface());
-            surf.inhibit_system_shortcuts(null);
+
+            var surf = this.get_surface() as Gdk.Wayland.Toplevel;
+            if (surf == null) return;
+
+            if (inhibit_system_shortcuts) surf.inhibit_system_shortcuts(null);
             surf.set_application_id(BOB_LAUNCHER_APP_ID);
         }
     }

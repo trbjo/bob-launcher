@@ -5,9 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef double score_t;
-#define SCORE_MAX 100.0
-#define SCORE_MIN -10.0
+typedef int16_t score_t;
+#define SCORE_MAX 8191
+#define SCORE_MIN -8192
+
 #define MATCH_MAX_LEN 512
 #define INITIAL_CAPACITY 32
 

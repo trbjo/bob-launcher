@@ -1,32 +1,29 @@
 namespace BobLauncher {
-    public delegate void SettingsCallback(Cancellable cancellable);
-
     public abstract class PluginBase : Match {
-        private bool working = false;
-        private Mutex work_mutex;
-        private Mutex state_mutex;
-        private Cancellable current_cancellable;
-        public double bonus { get; set; }
-
-        construct {
-            work_mutex = Mutex();
-            state_mutex = Mutex();
-            current_cancellable = new Cancellable();
+        internal MatchFactory make_match() {
+            return () => this;
         }
 
-        private bool _is_enabled = false;
+        public int16 bonus { get; set; }
+
+        private int _is_enabled;
+
+        private ulong worker_id = 0;
+
         public bool is_enabled() {
-            state_mutex.lock();
-            bool is_enabled = _is_enabled && !working;
-            state_mutex.unlock();
-            return is_enabled;
+            return Atomics.load(ref _is_enabled) == 1 && AtomicUlong.load(ref worker_id) == 0;
+        }
+
+        private void wait() {
+            while (AtomicUlong.load(ref worker_id) != 0) {
+                Threads.pause();
+            }
         }
 
         public void shutdown() {
-            current_cancellable.cancel();
-            work_mutex.lock();
+            if (!is_enabled()) return;
+            wait();
             deactivate();
-            work_mutex.unlock();
         }
 
         public virtual ulong initialize(GLib.Settings settings) {
@@ -39,132 +36,98 @@ namespace BobLauncher {
             if (schema_source.lookup(schema_id, true) != null) {
                 var specific_settings = settings.get_child("settings");
                 specific_settings.bind("bonus", this, "bonus", SettingsBindFlags.GET);
-                Threads.run(() => {
-                    work();
-                    handle_specific_settings(specific_settings, on_set_init_delegate);
+                wait();
+                ulong _worker_id = Threads.spawn_joinable(() => {
+                    handle_specific_settings(specific_settings);
 
                     bool enabled = settings.get_boolean("enabled");
                     bool activated = enabled;
 
                     if (enabled) {
-                        activated = activate(current_cancellable);
+                        activated = activate();
                     }
 
                     if (enabled && !activated) {
                         deactivate();
                     }
 
-                    _is_enabled = activated;
+                    Atomics.store(ref _is_enabled, (int)activated);
+
                     if (enabled != activated) {
                         settings.set_boolean("enabled", activated);
                     }
 
-                    relax();
+                    AtomicUlong.store(ref worker_id, 0);
                 });
+                AtomicUlong.store(ref worker_id, _worker_id);
 
-
-                settings_handler_id = specific_settings.changed.connect((key) => {
-                    current_cancellable.cancel();
-                    current_cancellable = new Cancellable();
-                    Threads.run(() => {
-                        work();
+                specific_settings.changed.connect((key) => {
+                    wait();
+                    ulong new_worker = Threads.spawn_joinable(() => {
                         if (!handle_base_settings(specific_settings, key)) {
                             Variant value = specific_settings.get_value(key);
-                            on_set_change_delegate(key, value);
+                            on_setting_changed(key, value);
                         }
-                        relax();
+                        AtomicUlong.store(ref worker_id, 0);
                     });
+                    AtomicUlong.store(ref worker_id, new_worker);
                 });
             } else {
-                work();
+                wait();
+
                 bool enabled = settings.get_boolean("enabled");
                 bool activated = enabled;
 
                 if (enabled) {
-                    activated = activate(current_cancellable);
+                    activated = activate();
                 }
 
                 if (enabled && !activated) {
                     deactivate();
                 }
 
-                _is_enabled = activated;
+                Atomics.store(ref _is_enabled, (int)activated);
+
                 if (enabled != activated) {
                     settings.set_boolean("enabled", activated);
                 }
-
-                relax();
             }
 
-
-
             return settings.changed.connect((key) => {
-                current_cancellable.cancel();
-                current_cancellable = new Cancellable();
-                Threads.run(() => {
-                    work();
-
+                wait();
+                ulong _worker_id = Threads.spawn_joinable(() => {
                     bool enabled = settings.get_boolean("enabled");
                     bool activated = enabled;
 
                     if (enabled) {
-                        activated = activate(current_cancellable);
+                        activated = activate();
                     }
 
                     if (enabled && !activated) {
                         deactivate();
                     }
 
-                    _is_enabled = activated;
+                    Atomics.store(ref _is_enabled, (int)activated);
                     if (enabled != activated) {
                         settings.set_boolean("enabled", activated);
                     }
 
-                    relax();
+                    AtomicUlong.store(ref worker_id, 0);
                 });
+                AtomicUlong.store(ref worker_id, _worker_id);
             });
         }
 
-        ulong settings_handler_id;
-
-        private delegate void SetChange(string k, Variant value);
-
-
-        private void on_set_init_delegate(string k, Variant value) {
-            this.on_setting_initialized(k, value);
-        }
-
-        private void on_set_change_delegate(string k, Variant value) {
-            var cb = this.on_setting_changed(k, value);
-            if (cb != null) {
-                cb(current_cancellable);
-            }
-        }
-
-        private void work() {
-            state_mutex.lock();
-            working = true;
-            state_mutex.unlock();
-            work_mutex.lock();
-        }
-
-        private void relax() {
-            state_mutex.lock();
-            working = false;
-            state_mutex.unlock();
-            work_mutex.unlock();
-        }
-
-        private void handle_specific_settings(GLib.Settings specific_settings, SetChange func) {
+        private void handle_specific_settings(GLib.Settings specific_settings) {
             foreach (string key in specific_settings.settings_schema.list_keys()) {
                 if (!handle_base_settings(specific_settings, key)) {
                     Variant value = specific_settings.get_value(key);
-                    func(key, value);
+                    on_setting_changed(key, value);
                 }
             }
         }
 
-        protected virtual bool activate(Cancellable cancellable) {
+        protected virtual bool activate() {
             return true;
         }
 
@@ -172,14 +135,8 @@ namespace BobLauncher {
             // Default implementation does nothing
         }
 
-        public delegate void SettingsCallback(Cancellable cancellable);
-
-        protected virtual SettingsCallback? on_setting_changed(string key, GLib.Variant value) {
+        public virtual void on_setting_changed(string key, GLib.Variant value) {
             error("Handling setting: '%s' for plugin: %s, but plugin does not override `on_setting_changed`", key, this.title);
-        }
-
-        public virtual void on_setting_initialized(string key, GLib.Variant value) {
-            error("Handling setting: '%s' for plugin: %s, but plugin does not override `on_setting_initialized`", key, this.title);
         }
 
         protected virtual bool handle_base_settings(GLib.Settings settings, string key) {
@@ -248,54 +205,5 @@ namespace BobLauncher {
         }
 
         public virtual void find_for_match(Match match, ActionSet rs) { }
-    }
-
-    public abstract class SearchBase : PluginBase {
-        public virtual uint shard_count { get; set; default = 1; }
-        public uint update_interval { get; set; }
-        public bool enabled_in_default_search { get; set; }
-        public uint char_threshold { get; set; }
-
-        protected override bool handle_base_settings(GLib.Settings settings, string key) {
-            switch (key) {
-            case "char-threshold":
-                this.char_threshold = settings.get_uint("char-threshold");
-                return true;
-            case "bonus":
-                this.bonus = settings.get_double("bonus");
-                return true;
-            case "enabled-in-default":
-                this.enabled_in_default_search = settings.get_boolean("enabled-in-default");
-                return true;
-            case "update-interval":
-                uint user_value = settings.get_uint("update-interval");
-                update_interval = ((user_value == 0) ? 0 : uint.max(500, user_value) * 1000);
-                return true;
-            default:
-                return false;
-            }
-        }
-
-        protected virtual void search(ResultContainer rs) {
-            error("Plugin has not implemented search");
-        }
-
-        public virtual void search_shard(ResultContainer rs, uint shard_id) {
-            if (shard_id > 0) {
-                error("Plugin doesn't support sharding");
-            }
-            search(rs);
-        }
-    }
-
-    public abstract class SearchAction : SearchBase {
-        protected override bool handle_base_settings(GLib.Settings settings, string key) {
-            // First try search settings
-            if (base.handle_base_settings(settings, key)) {
-                return true;
-            }
-            // No additional settings yet for SearchAction
-            return false;
-        }
     }
 }

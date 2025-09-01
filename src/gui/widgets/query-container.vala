@@ -48,6 +48,7 @@ namespace BobLauncher {
             instance = this;
             name = "query-container";
             overflow = Gtk.Overflow.HIDDEN;
+            css_classes = {"query-empty"};
 
             layouts = new Pango.Layout[TextRepr.COUNT];
             for (int i = 0; i < TextRepr.COUNT; i++) {
@@ -72,7 +73,7 @@ namespace BobLauncher {
             return !(x >= thumbnail_location() && State.sf == SearchingFor.ACTIONS);
         }
 
-        private Match? match_finder(double x, double y) {
+        private unowned Match? match_finder(double x, double y) {
             if (State.sf != SearchingFor.ACTIONS) return null;
             if (x < thumbnail_location()) return null;
             return State.selected_source();
@@ -123,6 +124,13 @@ namespace BobLauncher {
                 case TextRepr.EMPTY:
                     break;
             }
+
+            if (text_repr % 2 == 0) {
+                instance.add_css_class("query-empty");
+            } else {
+                instance.remove_css_class("query-empty");
+            }
+
             instance.queue_draw();
         }
 
@@ -189,18 +197,24 @@ namespace BobLauncher {
 
         protected override void snapshot(Gtk.Snapshot snapshot) {
             var color = get_color();
+            // we need to do it this way. instead of using the alpha of the font,
+            // we set the alpha of the font to 1.0f and use the alpha of the font as the
+            // opacity of the whole snapshot. this is because otherwise we cannot ensure
+            // the magnifying glass will have the same color as that of the text.
+            float font_alpha = color.alpha;
+            color.alpha = 1.0f;
             int height = get_height();
 
             snapshot_drag_image(snapshot, height);
 
-            if (text_repr % 2 == 0) snapshot.push_opacity(0.6);
+            snapshot.push_opacity(font_alpha);
 
             snapshot_glass(snapshot, color, height);
             snapshot.translate({ 0, (height - selected_row_height) / 2 });
             snapshot.append_layout(layouts[text_repr], color);
             snapshot_cursor(snapshot, color);
 
-            if (text_repr % 2 == 0) snapshot.pop();
+            snapshot.pop();
 
             cursor_w.add_css_class("blinking");
         }

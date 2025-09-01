@@ -4,7 +4,6 @@
 #include <glib.h>
 #include <thread-manager.h>
 #include <glib-object.h>
-#include <gtk/gtk.h>
 
 typedef int BobLauncherSearchingFor;
 
@@ -22,11 +21,11 @@ extern void state_update_layout(BobLauncherSearchingFor what);
 #define CACHE_LINE_SIZE 64
 
 typedef struct {
-    _Atomic int remaining;
-    char _padding1[CACHE_LINE_SIZE - sizeof(_Atomic int)];
+    atomic_int* refs;
 
-    bool reset_index;
-    uintptr_t* combined_data; // Packed plugin pointers and shard indices
+    BobLauncherSearchBase* plugin;
+    unsigned int shard;
+
     HashSet* hashset;
 } CACHE_ALIGNED WorkerData;
 
@@ -38,8 +37,6 @@ static bool update_ui_callback(void* data) {
     int new_index = reset_index && old != hashset->size ? 0 :
                     state_selected_indices[SEARCHING_FOR_SOURCES];
 
-    while (atomic_load(&hashset->size) == -1) _mm_pause();
-
     if (state_update_provider(SEARCHING_FOR_SOURCES, hashset, new_index)) {
         state_update_layout(SEARCHING_FOR_SOURCES);
     }
@@ -47,94 +44,94 @@ static bool update_ui_callback(void* data) {
     return false;
 }
 
-static void search_worker_thread(void* user_data) {
-    WorkerData* worker_data = (WorkerData*)user_data;
-    _Atomic int* remaining = &worker_data->remaining;
-
-    HashSet* hashset = worker_data->hashset;
-    ResultContainer* hashset_handle = hashset_create_handle(hashset);
-
-    unsigned int event_id = (unsigned int)hashset->event_id;
-    uintptr_t* combined_data = worker_data->combined_data;
-
-    int j;
-    while ((j = atomic_dec(remaining) - 1) >= 0 && events_ok(event_id)) {
-        uintptr_t packed = combined_data[j];
-        unsigned int shard = (unsigned int)(packed >> 48);
-        BobLauncherSearchBase* plugin = (BobLauncherSearchBase*)(packed & 0xFFFFFFFFFFFFULL);
-        bob_launcher_search_base_search_shard(plugin, hashset_handle, shard);
-    }
-
-    if (hashset_complete_merge(hashset, hashset_handle)) {
-        /* Schedule UI update on main thread if we're the last worker */
-        uint64_t encoded_hashset = ((uint64_t)worker_data->reset_index << 63) + (uint64_t)hashset;
-        g_main_context_invoke_full(NULL, G_PRIORITY_HIGH, (GSourceFunc)update_ui_callback, (void*)encoded_hashset, NULL);
-        free(worker_data->combined_data);
-        free(worker_data);
+static inline void callback_or_cleanup(HashSet* set, atomic_int* refs, bool reset_index) {
+    if (atomic_fetch_sub(refs, 1) == 1) {
+        if (events_ok(set->event_id)) {
+            hashset_prepare(set);
+            uint64_t encoded_hashset = ((uint64_t)reset_index << 63) + (uint64_t)set;
+            /* Schedule UI update on main thread if we're the last worker */
+            g_main_context_invoke_full(NULL, G_PRIORITY_HIGH, (GSourceFunc)update_ui_callback, (void*)encoded_hashset, NULL);
+        } else {
+            hashset_destroy(set);
+        }
+        free(refs);
     }
 }
 
-static int largest_size = 0;
+static void worker_finalize_reset(void* user_data) {
+    WorkerData* worker_data = (WorkerData*)user_data;
+    callback_or_cleanup(worker_data->hashset, worker_data->refs, true);
+    free(worker_data);
+}
+
+static void worker_finalize(void* user_data) {
+    WorkerData* worker_data = (WorkerData*)user_data;
+    callback_or_cleanup(worker_data->hashset, worker_data->refs, false);
+    free(worker_data);
+}
+
+static void search_worker_thread(void* user_data) {
+    WorkerData* worker_data = (WorkerData*)user_data;
+    HashSet* set = worker_data->hashset;
+
+    if (!events_ok(set->event_id)) return;
+    ResultContainer* rc = hashset_create_handle(set);
+
+    bob_launcher_search_base_search_shard(worker_data->plugin,
+                                          rc,
+                                          worker_data->shard);
+
+    if (events_ok(set->event_id)) {
+        hashset_merge(set, rc);
+    } else {
+        container_destroy(rc);
+    }
+}
+
+static inline void search_plugin(BobLauncherSearchBase* sp, HashSet* hashset, atomic_int* refs, void* finalize_func) {
+    size_t shard_count = bob_launcher_search_base_get_shard_count(sp);
+
+    atomic_fetch_add(refs, shard_count);
+
+    for (size_t shard = 0; shard < shard_count; shard++) {
+
+        WorkerData* worker_data = aligned_alloc(64, sizeof(WorkerData));
+
+        if (worker_data == NULL) {
+            atomic_fetch_sub(refs, 1);
+            continue;
+        }
+
+        worker_data->hashset = hashset;
+        worker_data->shard = shard;
+        worker_data->plugin = sp;
+        worker_data->refs = refs;
+
+        thread_pool_run(search_worker_thread, worker_data, finalize_func);
+    }
+}
 
 void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* selected_plg, int event_id, bool reset_index) {
-    if (query == NULL) return;
-    WorkerData* worker_data = malloc(sizeof(WorkerData));
-    if (worker_data == NULL) return;
+    atomic_int* refs = aligned_alloc(64, 64);
+    if (refs == NULL) return;
+    atomic_init(refs, 1);
 
-    size_t capacity = selected_plg != NULL ? bob_launcher_search_base_get_shard_count(selected_plg) : largest_size;
-    worker_data->combined_data = malloc(capacity * sizeof(uintptr_t));
-    if (worker_data->combined_data == NULL) {
-        free(worker_data);
-        return;
-    }
+    HashSet* hashset = hashset_create(query, event_id);
+    void* finalize_func = reset_index ? worker_finalize_reset : worker_finalize;
 
-    worker_data->reset_index = reset_index;
-    worker_data->remaining = 0;
-
-    // Single pass: collect and pack plugin pointers and shard indices
-    if (selected_plg != NULL) {
-        for (unsigned int shard = 0; shard < capacity; shard++) {
-            worker_data->combined_data[worker_data->remaining++] = ((uintptr_t)shard << 48) | ((uintptr_t)selected_plg & 0xFFFFFFFFFFFFULL);
-        }
+    if (selected_plg) {
+        search_plugin(selected_plg, hashset, refs, finalize_func);
     } else {
-        unsigned int query_length = strlen(query);
         for (size_t i = 0; i < plugin_loader_search_providers->len; i++) {
             BobLauncherSearchBase* sp = (BobLauncherSearchBase*)plugin_loader_search_providers->pdata[i];
 
             if (bob_launcher_plugin_base_is_enabled((BobLauncherPluginBase*)sp) &&
                 bob_launcher_search_base_get_enabled_in_default_search(sp) &&
-                bob_launcher_search_base_get_char_threshold(sp) <= query_length) {
-
-                unsigned int shard_count = bob_launcher_search_base_get_shard_count(sp);
-
-                if (worker_data->remaining + shard_count > capacity) {
-                    // Double the capacity or increase to fit the new shards, whichever is larger
-                    size_t new_capacity = MAX(capacity * 2, worker_data->remaining + shard_count);
-                    uintptr_t* new_data = realloc(worker_data->combined_data, new_capacity * sizeof(uintptr_t));
-                    if (new_data == NULL) {
-                        free(worker_data->combined_data);
-                        free(worker_data);
-                        return;
-                    }
-                    worker_data->combined_data = new_data;
-                    capacity = new_capacity;
-                }
-
-                for (unsigned int shard = 0; shard < shard_count; shard++) {
-                    worker_data->combined_data[worker_data->remaining++] = ((uintptr_t)shard << 48) | ((uintptr_t)sp & 0xFFFFFFFFFFFFULL);
-                }
+                g_regex_match(bob_launcher_search_base_get_compiled_regex(sp), query, 0, NULL )) {
+                search_plugin(sp, hashset, refs, finalize_func);
             }
         }
     }
 
-    if (largest_size < worker_data->remaining) {
-        largest_size = worker_data->remaining;
-    }
-
-    int workers = MIN(thread_pool_num_cores(), worker_data->remaining);
-    worker_data->hashset = hashset_create(query, event_id, workers);
-
-    for (int i = 0; i < workers; i++) {
-        thread_pool_run(search_worker_thread, worker_data, NULL);
-    }
+    callback_or_cleanup(hashset, refs, reset_index);
 }

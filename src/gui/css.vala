@@ -7,11 +7,24 @@ namespace CSS {
     private const string color_variables = """
 @define-color base_transparent       alpha(@theme_base_color, %.2f);
 @define-color bg_transparent         alpha(@theme_bg_color, %.2f);
-@define-color easened_accent_bg      alpha(@easened_accent, %.2f);
 
-@define-color main_container_border  alpha(mix(@theme_base_color, #000, 0.23), %.2f);
-@define-color separator_color        alpha(mix(@theme_base_color, #999, 0.32), %.2f);
-@define-color selected_match_row     alpha(mix(@theme_base_color, @theme_text_color, 0.12), %.2f);
+@define-color separator_color             alpha(mix(@theme_base_color, #000, 0.23), %.2f);
+@define-color unfocused_fg_color          mix(@theme_base_color, @theme_text_color, 0.5);
+@define-color selected_match_row          alpha(mix(@theme_bg_color, @theme_text_color, 0.12), %.2f);
+""";
+
+    private const string color_variables_opaque = """
+@define-color base_transparent       @theme_base_color;
+@define-color bg_transparent         @theme_bg_color;
+
+@define-color unfocused_fg_color          mix(@theme_base_color, @theme_text_color, 0.5);
+@define-color separator_color             mix(@theme_base_color, #000, 0.23);
+@define-color selected_match_row          mix(@theme_base_color, @theme_text_color, 0.12);
+
+#result-box {
+    background: @base_transparent;
+}
+
 """;
 
     internal static void initialize() {
@@ -28,7 +41,8 @@ namespace CSS {
     private static void set_css_opacity() {
         double opacity = settings.get_double("opacity");
         StyleProvider.remove_provider_for_display(Gdk.Display.get_default(), opacity_provider);
-        string alpha_colors = color_variables.printf(opacity, opacity, opacity, opacity, opacity, opacity);
+        // allows compositors to optimize by setting the color of the resultbox to an opaque color.
+        string alpha_colors = opacity == 1.0 ? color_variables_opaque : color_variables.printf(opacity, opacity, opacity, opacity, opacity, opacity);
         opacity_provider.load_from_string(alpha_colors);
         StyleProvider.add_provider_for_display(Gdk.Display.get_default(), opacity_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
     }

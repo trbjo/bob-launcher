@@ -1,15 +1,21 @@
 namespace BobLauncher {
+    namespace BobAppInfo {
+        public static string get_string_from_group(GLib.DesktopAppInfo info, string group_name, string key) {
+            return Props.desktop_app_info_get_string_from_group(info, group_name, key);
+        }
+    }
+
     namespace Threading { // api for the plugins
         public delegate void TaskFunc();
         public static void run(owned TaskFunc task) {
             Threads.run((owned)task);
         }
 
-        public static uint64 spawn_joinable(owned TaskFunc task) {
+        public static ulong spawn_joinable(owned TaskFunc task) {
             return Threads.spawn_joinable((owned)task);
         }
 
-        public static void join(uint64 thread_id) {
+        public static void join(ulong thread_id) {
             Threads.join(thread_id);
         }
 
@@ -167,10 +173,8 @@ namespace BobLauncher {
             }
         }
 
-
         public static void launch_uri(string uri) {
             try {
-                message(uri);
                 AppInfo.launch_default_for_uri(uri, Gdk.Display.get_default().get_app_launch_context());
             } catch (Error err) {
                 warning ("%s", err.message);
@@ -185,24 +189,6 @@ namespace BobLauncher {
                 }
             }
             return true;
-        }
-
-        internal static void launch_file_raw(File file, string[] env) {
-            AppInfo app_info = get_app_info_for_file(file);
-            if (app_info == null) return;
-
-            string commandline = app_info.get_commandline();
-            if (commandline == null) {
-                message("No commandline for app");
-                return;
-            }
-
-            string path = file.get_path();
-
-            string[] argv = parse_command_line(commandline, path);
-            if (argv == null) return;
-
-            spawn_process(argv, env, path);
         }
 
         internal static AppInfo? get_app_info_for_file(File file) {
@@ -287,23 +273,6 @@ namespace BobLauncher {
             }
             return false;
         }
-
-        internal static void spawn_process(string[] argv, string[] env, string path) {
-            try {
-                Pid child_pid;
-                Process.spawn_async(
-                    null,
-                    argv,
-                    env,
-                    SpawnFlags.SEARCH_PATH,
-                    null,
-                    out child_pid
-                );
-            } catch (Error e) {
-                warning("Error spawning process: %s", e.message);
-            }
-        }
-
     }
 }
 

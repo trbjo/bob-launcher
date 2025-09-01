@@ -1,0 +1,7 @@
+[wrap-git]
+url = https://github.com/trbjo/file-monitor.git
+revision = main
+depth = 1
+
+[provide]
+file-monitor = file_monitor_dep

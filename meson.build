@@ -7,7 +7,9 @@ project('io.github.trbjo.bob.launcher', 'vala', 'c',
     ]
 )
 
-settings_dep = subproject('gtk4-settings-library').get_variable('settings_dep')
+# use this for debug builds
+# meson setup build --buildtype=debug -Db_sanitize=address,undefined -Dc_args='-g -fno-omit-frame-pointer -O0 -falign-functions=16 -falign-loops=16'
+# meson setup build --buildtype=debug -Db_sanitize=thread            -Dc_args='-g -fno-omit-frame-pointer -O1'
 
 simple_keyboard = subproject('simple-keyboard')
 simple_keyboard_dep = simple_keyboard.get_variable('simple_keyboard_dep')
@@ -17,15 +19,23 @@ thread_manager = subproject('thread-manager')
 thread_manager_dep = thread_manager.get_variable('thread_manager_dep')
 thread_manager_vapi_dir = thread_manager.get_variable('thread_manager_dep').get_variable('vapi_dir')
 
+file_monitor = subproject('file-monitor')
+file_monitor_dep = file_monitor.get_variable('file_monitor_dep')
+file_monitor_vapi_dir = file_monitor.get_variable('file_monitor_dep').get_variable('vapi_dir')
+
 lib_sources = files(
     'src/api/interfaces.vala',
     'src/core/appsettings.vala',
-    'src/core/constants.vala',
+    'src/core/launch-context/systemd-launcher.vala',
+    'src/core/launch-context/common-launcher.vala',
+    'src/core/launch-context/launch-context.vala',
     'src/core/data-sink.vala',
     'src/core/match/file-match.vala',
+    'src/core/match/paintable.vala',
     'src/core/match/match.vala',
     'src/core/match/unknown-match.vala',
     'src/core/plugin/plugin-base.vala',
+    'src/core/plugin/search-base.vala',
     'src/core/plugin/plugin-loader.vala',
     'src/core/utils.vala',
     'src/gui/drag-and-drop-handler.vala',
@@ -49,19 +59,27 @@ lib_sources = files(
 )
 
 c_sources = files(
+    # 'src/C/plugin-base.c',
+    'src/core/launch-context/access-appinfo-props.c',
+    'src/core/launch-context/access-appinfo-props.h',
+    'src/C/systemd-scope.c',
+    'src/C/dbus-scope-monitor.c',
     'src/C/data-sink-actions.c',
     'src/C/data-sink-sources.c',
     'src/C/state.c',
     'src/C/controller.c',
     'src/C/keybindings.c',
     'src/C/icon-cache-service.c',
-    'src/core/search/result-container.c',
+    'src/C/result-container.c',
     'src/C/highlight.c',
+    'src/C/hashset.c',
     'src/C/events.c',
     'src/C/fzy/match.c',
     'src/C/string-utils.c',
-    'src/C/fzy/hashset.c',
+    'src/C/gthread_stub.c',
     'src/C/fzy/config.h',
+    'src/C/systemd_service_utils.h',
+    'src/C/systemd_service_utils.c',
 )
 
 gnome = import('gnome')
@@ -88,16 +106,30 @@ launcher_lib = shared_library('bob-launcher',
         dependency('gtk4', version: '>= 4.0.0'),
         dependency('gtk4-wayland', version: '>= 4.0.0'),
         dependency('wayland-client'),
-        settings_dep,
+        meson.get_compiler('vala').find_library('posix'),
         simple_keyboard_dep,
         thread_manager_dep,
-        meson.get_compiler('c').find_library('m')
+        file_monitor_dep,
+        meson.get_compiler('c').find_library('m'),
+        meson.get_compiler('c').find_library('dbus-1'),
     ],
     include_directories: inc_dirs,
+    c_args: [
+    '-D_GNU_SOURCE',
+    '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
+    '-I/usr/include/dbus-1.0',
+    '-I/usr/lib/dbus-1.0/include'
+    ],
     vala_args: [
         '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
         '--pkg', 'c-bindings',
         '--pkg', 'state',
+        '--pkg', 'systemd-service',
+        '--pkg', 'constants',
+        '--pkg', 'systemd-scope',
+        # '--pkg', 'plugin-base',
+        '--pkg', 'dbus-scope-monitor',
+        # '--pkg', 'systemd-scope-monitor',
         '--pkg', 'keybindings',
         '--pkg', 'icon-cache-service',
         '--pkg', 'controller',
@@ -107,6 +139,8 @@ launcher_lib = shared_library('bob-launcher',
         '--pkg', 'string-utils',
         '--pkg', 'highlight',
         '--pkg', 'hashset',
+        '--vapidir=' + file_monitor_vapi_dir,
+        '--pkg', 'file-monitor',
         '--vapidir=' + thread_manager_vapi_dir,
         '--pkg', 'thread-manager',
         '--vapidir=' + simple_keyboard_vapi_dir,
@@ -131,9 +165,14 @@ liblauncher_h = custom_target('liblauncher.h',
 )
 
 launcher_exe = executable('bob-launcher',
+    'src/C/systemd_service.h',
+    'src/C/systemd_service.c',
+    'src/C/systemd_service_utils.h',
+    'src/C/systemd_service_utils.c',
     'src/main.c',
     liblauncher_h,
     dependencies: [dependency('dbus-1')],
+    include_directories: include_directories('src/C'),
     install: false,
 )
 
@@ -141,7 +180,7 @@ custom_target(
     'strip-' + launcher_exe.name(),
     input: launcher_exe,
     output: launcher_exe.name() + '.stripped',
-    command: ['strip', '-s', '@INPUT@', '-o', '@OUTPUT@'],
+    command: get_option('buildtype') != 'debug' ? ['strip', '-s', '@INPUT@', '-o', '@OUTPUT@'] : ['cp', '@INPUT@', '@OUTPUT@'],
     build_by_default: true
 )
 

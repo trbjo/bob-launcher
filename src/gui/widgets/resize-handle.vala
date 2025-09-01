@@ -6,9 +6,11 @@ namespace BobLauncher {
 
         static construct {
             ui_settings = new Settings(BOB_LAUNCHER_APP_ID + ".ui");
+            set_css_name("handle");
         }
 
         construct {
+            css_classes = {"vertical"};
             pointer = new Gdk.Cursor.from_name("ns-resize", null);
             drag_gesture = new Gtk.GestureDrag();
             add_controller(drag_gesture);

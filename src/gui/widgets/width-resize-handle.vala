@@ -8,9 +8,11 @@ namespace BobLauncher {
         static construct {
             css_provider = new Gtk.CssProvider();
             ui_settings = new Settings(BOB_LAUNCHER_APP_ID + ".ui");
+            set_css_name("handle");
         }
 
         construct {
+            css_classes = {"horizontal"};
             pointer = new Gdk.Cursor.from_name("ew-resize", null);
             drag_gesture = new Gtk.GestureDrag();
             add_controller(drag_gesture);

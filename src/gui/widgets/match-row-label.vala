@@ -9,9 +9,11 @@ namespace BobLauncher {
 
         private int visible_images;
         private int visible_labels;
+        private int visible_containers;
 
         private GenericArray<TextImage> images;
         private GenericArray<Gtk.Label> labels;
+        private GenericArray<Gtk.Box> containers;
 
         private int[] widget_lengths;
 
@@ -32,10 +34,10 @@ namespace BobLauncher {
             | Gtk.EventControllerScrollFlags.KINETIC;
 
         construct {
-            // valign = Gtk.Align.BASELINE_CENTER;
+            valign = Gtk.Align.BASELINE_FILL;
             halign = Gtk.Align.START;
             hexpand = true;
-            overflow = Gtk.Overflow.HIDDEN;
+            overflow = Gtk.Overflow.VISIBLE;
 
             start = Graphene.Point() { x = 0, y = 0 };
             stops = new Gsk.ColorStop[4];
@@ -47,6 +49,7 @@ namespace BobLauncher {
 
             images = new GenericArray<TextImage>();
             labels = new GenericArray<Gtk.Label>();
+            containers = new GenericArray<Gtk.Box>();
             widget_lengths = new int[]{};
         }
 
@@ -84,42 +87,76 @@ namespace BobLauncher {
 
             visible_images = 0;
             visible_labels = 0;
+            visible_containers = 0;
+
+            for (int i = 0; i < labels.length; i++) {
+                var label = labels.get(i);
+                label.set_attributes(null);
+                label.set_text("");
+            }
         }
 
-        private unowned Gtk.Widget get_or_create_widget(FragmentType type) {
+        private unowned Gtk.Widget get_or_create_widget(FragmentType type, Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL, int spacing = 0) {
             unowned Gtk.Widget widget;
+            bool is_new_widget = false;
 
-            if (type == FragmentType.IMAGE) {
-                if (visible_images < images.length) {
-                    widget = images[visible_images];
-                    widget.set_data("fragment", null);
-                } else {
-                    var icon = new TextImage();
-                    images.add(icon);
-                    widget_lengths+=0;
-                    widget = icon;
-                }
-                visible_images++;
-            } else {
-                if (visible_labels < labels.length) {
-                    widget = labels[visible_labels];
-                    widget.set_data("fragment", null);
-                } else {
-                    var label = new Gtk.Label("") {
-                        xalign = 0.0f,
-                        css_classes = { "fragment" },
-                        single_line_mode = true,
-                        hexpand = true,
-                        valign = Gtk.Align.BASELINE_CENTER,
-                        vexpand = true,
-                        overflow = Gtk.Overflow.VISIBLE,
-                        use_markup = true,
-                    };
-                    labels.add(label);
-                    widget_lengths+=0;
-                    widget = label;
-                }
-                visible_labels++;
+            switch (type) {
+                case FragmentType.IMAGE:
+                    if (visible_images < images.length) {
+                        widget = images[visible_images];
+                    } else {
+                        var icon = new TextImage();
+                        is_new_widget = true;
+                        images.add(icon);
+                        widget_lengths += 0;
+                        widget = icon;
+                    }
+                    visible_images++;
+                    break;
+
+                case FragmentType.CONTAINER:
+                    if (visible_containers < containers.length) {
+                        widget = containers[visible_containers];
+                        // Update container properties
+                        var box = (Gtk.Box)widget;
+                        box.orientation = orientation;
+                        box.spacing = spacing;
+                    } else {
+                        var box = new Gtk.Box(orientation, spacing) {
+                            overflow = Gtk.Overflow.HIDDEN,
+                            hexpand = true,
+                            vexpand = true,
+                        };
+                        is_new_widget = true;
+                        containers.add(box);
+                        widget_lengths += 0;
+                        widget = box;
+                    }
+                    visible_containers++;
+                    break;
+
+                default: // TEXT
+                    if (visible_labels < labels.length) {
+                        widget = labels[visible_labels];
+                        var label = (Gtk.Label)widget;
+                        label.set_attributes(null);
+                        label.set_text("");
+                    } else {
+                        var label = new Gtk.Label("") {
+                            xalign = 0.0f,
+                            single_line_mode = true,
+                            hexpand = true,
+                            valign = Gtk.Align.BASELINE_CENTER,
+                            vexpand = true,
+                            overflow = Gtk.Overflow.VISIBLE,
+                        };
+                        is_new_widget = true;
+                        labels.add(label);
+                        widget_lengths += 0;
+                        widget = label;
+                    }
+                    visible_labels++;
+                    break;
             }
 
             unowned Gtk.Widget? sibling = get_first_child();
@@ -130,38 +167,161 @@ namespace BobLauncher {
             widget.insert_before(this, sibling);
             current_widget_index++;
 
+            if (is_new_widget) {
+                App.main_win.unmap.connect(() => widget.set_data("fragment", null));
+            } else {
+                widget.set_data("fragment", null);
+            }
+
+            widget.css_classes = { "fragment" };
             return widget;
         }
 
-        internal void set_markup(string text) {
+        internal void set_text(string text, Pango.AttrList? attrs) {
             reset();
+            hide_all_widgets();
+
             Gtk.Label label = ((Gtk.Label)get_or_create_widget(FragmentType.TEXT));
             label.css_classes = { };
-            label.set_markup(text);
+            label.visible = true;
+            label.set_text(text);
+            label.set_attributes(attrs);
         }
 
-        internal void set_children(GenericArray<Description> descs) {
+        internal void set_description(Description desc) {
             reset();
+            process_description(desc, this);
+            hide_unused_widgets();
+        }
 
-            foreach (var frag in descs) {
-                switch (frag.fragment_type) {
-                    case FragmentType.IMAGE:
+        private void process_description(Description desc, Gtk.Widget parent_widget) {
+            switch (desc.fragment_type) {
+                case FragmentType.IMAGE:
+                    if (parent_widget == this) {
                         unowned TextImage icon = (TextImage)get_or_create_widget(FragmentType.IMAGE);
-                        icon.update(frag.text, (owned)frag.fragment_func);
-                        break;
-                    case FragmentType.TEXT:
+                        icon.update_icon_name(desc.text);
+                        icon.set_data("fragment", null);
+                        icon.css_classes = { desc.css_class };
+                        if (desc.fragment_func != null) {
+                            icon.set_data("fragment", desc);
+                            icon.add_css_class("clickable");
+                        }
+                        icon.visible = true;
+                    } else {
+                        // For nested items, create new widgets directly
+                        var icon = new TextImage();
+                        icon.update_icon_name(desc.text);
+                        icon.set_data("fragment", null);
+                        icon.css_classes = { desc.css_class };
+                        if (desc.fragment_func != null) {
+                            icon.set_data("fragment", desc);
+                            icon.add_css_class("clickable");
+                        }
+                        icon.visible = true;
+                        ((Gtk.Box)parent_widget).append(icon);
+                    }
+                    break;
+
+                case FragmentType.TEXT:
+                    if (parent_widget == this) {
                         unowned Gtk.Label label = (Gtk.Label)get_or_create_widget(FragmentType.TEXT);
-                        if (frag.text != label.label) {
-                            label.set_markup(frag.text);
+                        label.css_classes = { desc.css_class };
+                        if (desc.text != label.label) {
+                            label.set_text(desc.text);
+                        }
+                        label.set_attributes(desc.attributes);
+                        if (desc.fragment_func != null) {
+                            label.set_data("fragment", desc);
+                            label.add_css_class("clickable");
+                        }
+                        label.visible = true;
+                    } else {
+                        // For nested items, create new widgets directly
+                        var label = new Gtk.Label("") {
+                            xalign = 0.0f,
+                            single_line_mode = true,
+                            hexpand = true,
+                            valign = Gtk.Align.BASELINE_CENTER,
+                            vexpand = true,
+                            overflow = Gtk.Overflow.VISIBLE,
+                        };
+                        label.css_classes = { desc.css_class };
+                        if (desc.text != label.label) {
+                            label.set_text(desc.text);
+                        }
+                        label.set_attributes(desc.attributes);
+
+                        if (desc.fragment_func != null) {
+                            label.set_data("fragment", desc);
+                            label.add_css_class("clickable");
+                        }
+                        label.visible = true;
+                        ((Gtk.Box)parent_widget).append(label);
+                    }
+                    break;
+
+                case FragmentType.CONTAINER:
+                    if (parent_widget == this) {
+                        unowned Gtk.Box container = (Gtk.Box)get_or_create_widget(FragmentType.CONTAINER, desc.orientation, desc.spacing);
+                        container.css_classes = { desc.css_class };
+                        container.visible = true;
+
+                        // Clear existing children in reused containers
+                        unowned Gtk.Widget? child = container.get_first_child();
+                        while (child != null) {
+                            unowned Gtk.Widget? next = child.get_next_sibling();
+                            container.remove(child);
+                            child = next;
                         }
 
-                        if (frag.fragment_func != null) {
-                            label.set_data("fragment", new FragmentAction((owned)frag.fragment_func));
+                        // Process children recursively
+                        if (desc.children != null) {
+                            foreach (var child_desc in desc.children) {
+                                process_description(child_desc, container);
+                            }
                         }
-                        break;
-                    default:
-                        break;
-                }
+                    } else {
+                        // For nested containers, create new widgets directly
+                        var container = new Gtk.Box(desc.orientation, desc.spacing) {
+                            hexpand = true,
+                            vexpand = true,
+                        };
+                        container.css_classes = { desc.css_class };
+                        container.visible = true;
+                        ((Gtk.Box)parent_widget).append(container);
+
+                        // Process children recursively
+                        if (desc.children != null) {
+                            foreach (var child_desc in desc.children) {
+                                process_description(child_desc, container);
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
+
+        private void hide_all_widgets() {
+            for (int i = 0; i < labels.length; i++) {
+                labels.get(i).visible = false;
+            }
+            for (int i = 0; i < images.length; i++) {
+                images.get(i).visible = false;
+            }
+            for (int i = 0; i < containers.length; i++) {
+                containers.get(i).visible = false;
+            }
+        }
+
+        private void hide_unused_widgets() {
+            for (int i = visible_labels; i < labels.length; i++) {
+                labels.get(i).visible = false;
+            }
+            for (int i = visible_images; i < images.length; i++) {
+                images.get(i).visible = false;
+            }
+            for (int i = visible_containers; i < containers.length; i++) {
+                containers.get(i).visible = false;
             }
         }
 
@@ -234,11 +394,13 @@ namespace BobLauncher {
             uint count = 0;
             while (sibling != null && count++ < current_widget_index) {
                 int widget_width = widget_lengths[count-1];
-                sibling.allocate(widget_width, height, baseline, transform);
+                sibling.allocate(widget_width, height, max_baseline, transform);
                 transform = transform.translate({widget_width, 0});
                 sibling = sibling.get_next_sibling();
             }
         }
+
+        private int max_baseline = 0;
 
         internal override void measure(Gtk.Orientation orientation,
                                    int for_size,
@@ -252,12 +414,12 @@ namespace BobLauncher {
                 unowned Gtk.Widget? sibling = get_first_child();
                 uint count = 0;
                 while (sibling != null && count++ < current_widget_index) {
-                    int child_height, child_nat_baseline, child_min_baseline;
-                    sibling.measure(Gtk.Orientation.VERTICAL, -1, null, out child_height, out child_min_baseline, out child_nat_baseline);
+                    int child_height, child_nat_baseline;
+                    sibling.measure(Gtk.Orientation.VERTICAL, -1, null, out child_height, null, out child_nat_baseline);
                     natural = int.max(child_height, natural);
-                    natural_baseline = int.max(child_nat_baseline, natural_baseline);
-                    minimum_baseline = int.max(child_min_baseline, minimum_baseline);
+                    max_baseline = minimum_baseline = natural_baseline = int.max(child_nat_baseline, natural_baseline);
                     sibling = sibling.get_next_sibling();
+                    minimum = max_baseline;
                 }
             } else {
                 children_Width = 0;
@@ -272,7 +434,6 @@ namespace BobLauncher {
                     sibling = sibling.get_next_sibling();
                 }
             }
-            minimum = natural;
         }
 
         internal override Gtk.SizeRequestMode get_request_mode() {

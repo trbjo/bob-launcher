@@ -1,5 +1,7 @@
 build/
 
+.cache/
 subprojects/thread-manager/
+subprojects/file-monitor/
 subprojects/simple-keyboard/
 subprojects/gtk4-settings-library/

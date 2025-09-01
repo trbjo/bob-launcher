@@ -1,0 +1,15 @@
+[Unit]
+Description=BobLauncher
+ConditionEnvironment=WAYLAND_DISPLAY
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Slice=app.slice
+Type=exec
+Environment=LAUNCHER_DEBUG=0
+#EnvironmentFile=%h/.config/environment
+ExecStart=%h/.local/bin/bob-launcher --hidden
+
+[Install]
+WantedBy=graphical-session.target

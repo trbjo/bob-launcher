@@ -7,7 +7,7 @@
 #include "constants.h"
 #include "string-utils.h"
 
-#define keybindings_compute_hash(keyval, state) (keyval | (((unsigned int)state) << 16))
+#define keybindings_compute_hash(keyval, state) ((unsigned long)(keyval) | (((unsigned long)(state)) << 16))
 
 static GHashTable* keybindings_key_to_command_press = NULL;
 static GHashTable* keybindings_key_to_command_release = NULL;
@@ -69,6 +69,8 @@ const struct {
     { KEYBINDINGS_COMMAND_PREV_PANE, "prev-pane" },
     { KEYBINDINGS_COMMAND_QUIT, "quit" },
     { KEYBINDINGS_COMMAND_SHOW_SETTINGS, "show-settings" },
+    { KEYBINDINGS_COMMAND_SNEAK_PEEK, "sneak-peek" },
+    { KEYBINDINGS_COMMAND_SNEAK_PEEK_RELEASE, "sneak-peek-release" },
     { 0, NULL }
 };
 
@@ -192,8 +194,10 @@ static void keybindings_register_accelerator(const char* accel, KeybindingsComma
         GdkModifierType state = 0;
 
         gtk_accelerator_parse(variants[i], &keyval, &state);
-        unsigned int hash = keybindings_compute_hash(gdk_keyval_to_lower(keyval), state);
-        g_hash_table_insert(command_map, GUINT_TO_POINTER(hash), GINT_TO_POINTER(command));
+        unsigned int normalized_keyval = gdk_keyval_to_lower(keyval);
+        unsigned long hash = keybindings_compute_hash(normalized_keyval, state);
+
+        g_hash_table_insert(command_map, GSIZE_TO_POINTER(hash), GINT_TO_POINTER(command));
     }
 
     for (int i = 0; i < variants_length; i++) {
@@ -231,15 +235,15 @@ static void _keybindings_update_all_g_settings_changed(GSettings* _sender, const
 
 KeybindingsCommand keybindings_command_from_key_press(unsigned int keyval, GdkModifierType state) {
     unsigned int normalized_keyval = gdk_keyval_to_lower(keyval);
-    unsigned int hash = keybindings_compute_hash(normalized_keyval, state);
-    gpointer value = g_hash_table_lookup(keybindings_key_to_command_press, GUINT_TO_POINTER(hash));
+    unsigned long hash = keybindings_compute_hash(normalized_keyval, state);
+    gpointer value = g_hash_table_lookup(keybindings_key_to_command_press, GSIZE_TO_POINTER(hash));
     return (KeybindingsCommand)GPOINTER_TO_INT(value);
 }
 
 KeybindingsCommand keybindings_command_from_key_release(unsigned int keyval, GdkModifierType state) {
     unsigned int normalized_keyval = gdk_keyval_to_lower(keyval);
-    unsigned int hash = keybindings_compute_hash(normalized_keyval, state);
-    gpointer value = g_hash_table_lookup(keybindings_key_to_command_release, GUINT_TO_POINTER(hash));
+    unsigned long hash = keybindings_compute_hash(normalized_keyval, state);
+    gpointer value = g_hash_table_lookup(keybindings_key_to_command_release, GSIZE_TO_POINTER(hash));
     return (KeybindingsCommand)GPOINTER_TO_INT(value);
 }
 

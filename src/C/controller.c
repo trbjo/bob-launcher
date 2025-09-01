@@ -10,7 +10,6 @@
 #include "string-utils.h"
 #include "bob-launcher.h"
 #include "data-sink-sources.h"
-#include "settings.h"
 #include "keybindings.h"
 
 typedef struct _BobLauncherAppSettingsUI BobLauncherAppSettingsUI;
@@ -46,7 +45,6 @@ extern void bob_launcher_query_container_adjust_label_for_query (const char* tex
 extern void bob_launcher_scroll_controller_reset (void);
 
 extern void bob_launcher_app_open_settings();
-extern SettingsWindow* bob_launcher_app_settings_window;
 extern BobLauncherAppSettings* bob_launcher_app_settings_get_default (void);
 extern BobLauncherAppSettingsPlugins* bob_launcher_app_settings_get_plugins (BobLauncherAppSettings* self);
 extern BobLauncherAppSettingsUI* bob_launcher_app_settings_get_ui (BobLauncherAppSettings* self);
@@ -58,15 +56,6 @@ extern BobLauncherMatchRow** bob_launcher_result_box_row_pool;
 HashSet* data_sink_search_for_actions (const char* query, BobLauncherMatch* m, int event_id);
 HashSet* data_sink_search_for_plugins (const char* query, int event_id);
 HashSet* data_sink_search_for_targets (const char* query, BobLauncherMatch* a, int event_id);
-
-/* Private state variables */
-static int64_t controller_now = 0;
-
-static int64_t get_monotonic_time() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000 + (int64_t)ts.tv_nsec / 1000;
-}
 
 typedef struct {
     BobLauncherMatch* source;
@@ -154,10 +143,8 @@ static void* controller_execute_async(void* data) {
     bool result = bob_launcher_action_execute(action, exec_data->source, exec_data->target);
 
     if (result && exec_data->should_hide) {
-        // Schedule UI visibility change on main thread
         g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)bob_launcher_app_hide_window, NULL, NULL);
     } else {
-        // Update layout on main thread
         g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)state_update_layout_idle, NULL, NULL);
     }
 
@@ -256,7 +243,6 @@ static void setup_search_timeout(const char* search_query, BobLauncherSearchBase
 }
 
 void controller_start_search(const char* search_query) {
-    controller_now = get_monotonic_time();
     int event_id = events_increment();
 
     switch (state_sf) {
@@ -412,6 +398,7 @@ bool controller_handle_command(int command) {
             BobLauncherMatchRow* row = bob_launcher_result_box_row_pool[relative_index];
             int abs_index = row->abs_index;
             controller_goto_match_abs(abs_index);
+            state_update_layout ((BobLauncherSearchingFor) -999); // update the UI
             controller_execute(true);
             return true;
         }
@@ -481,6 +468,14 @@ bool controller_handle_command(int command) {
             return true;
 
         case KEYBINDINGS_COMMAND_SHOW_SETTINGS:
+            bob_launcher_app_open_settings();
+            return true;
+
+        case KEYBINDINGS_COMMAND_SNEAK_PEEK:
+            bob_launcher_app_open_settings();
+            return true;
+
+        case KEYBINDINGS_COMMAND_SNEAK_PEEK_RELEASE:
             bob_launcher_app_open_settings();
             return true;
 

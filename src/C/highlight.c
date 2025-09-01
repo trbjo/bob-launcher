@@ -2,22 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <gdk/gdk.h>
+#include <pango/pango.h>
 #include "highlight.h"
 
-#include <gdk/gdk.h>
-#include <string.h>
-#include <stdio.h>
-
-static char match_highlight[64] = {0}; // Keep this for backward compatibility
-static GdkRGBA accent_rgba = {1.0, 0.5, 0.8, 0.3}; // Default black, fully opaque
-
-GdkRGBA* highlight_get_accent_color() {
-    return &accent_rgba;
-}
-
-const char* highlight_get_pango_accent() {
-    return match_highlight;
-}
+// Static storage for accent color
+static GdkRGBA accent_rgba = {1.0, 0.5, 0.8, 0.3}; // Default
+static char match_highlight[64] = {0}; // Keep for backward compatibility
 
 static void highlight_parse_color(const char* color, GdkRGBA* rgba) {
     if (!color || !rgba) return;
@@ -29,7 +19,6 @@ static void highlight_parse_color(const char* color, GdkRGBA* rgba) {
     unsigned int r = 0, g = 0, b = 0, a = 255;
 
     if (color[0] == '#') {
-        // Hex format (#RRGGBB or #RRGGBBAA)
         if (strlen(color) >= 9) {
             sscanf(color + 1, "%2x%2x%2x%2x", &r, &g, &b, &a);
         }
@@ -38,11 +27,9 @@ static void highlight_parse_color(const char* color, GdkRGBA* rgba) {
         }
     }
     else if (strncmp(color, "rgb(", 4) == 0) {
-        // RGB format: rgb(r, g, b)
         sscanf(color, "rgb(%u, %u, %u)", &r, &g, &b);
     }
     else if (strncmp(color, "rgba(", 5) == 0) {
-        // RGBA format: rgba(r, g, b, a)
         float alpha_float = 1.0;
         sscanf(color, "rgba(%u, %u, %u, %f)", &r, &g, &b, &alpha_float);
         a = (unsigned int)(alpha_float * 255.0 + 0.5);
@@ -54,148 +41,7 @@ static void highlight_parse_color(const char* color, GdkRGBA* rgba) {
     rgba->alpha = a / 255.0;
 }
 
-static void highlight_format_accent_color(const GdkRGBA* rgba) {
-    if (!rgba) return;
 
-    // Convert to 0-255 range for formatting
-    unsigned int r = (unsigned int)(rgba->red * 255.0 + 0.5);
-    unsigned int g = (unsigned int)(rgba->green * 255.0 + 0.5);
-    unsigned int b = (unsigned int)(rgba->blue * 255.0 + 0.5);
-    int pango_alpha = (int)(rgba->alpha * 100.0 + 0.5);
-
-    // Format the Pango markup string
-    snprintf(match_highlight, sizeof(match_highlight),
-             "<span foreground=\"#%02x%02x%02x\" alpha=\"%d%%\">",
-             r, g, b, pango_alpha);
-}
-
-void highlight_set_accent_color(const char* color) {
-    if (!color) return;
-
-    // Parse the color into our static GdkRGBA
-    highlight_parse_color(color, &accent_rgba);
-
-    // Format the Pango markup string for backward compatibility
-    highlight_format_accent_color(&accent_rgba);
-}
-
-
-int* match_positions_with_markup(needle_info* needle, const char* haystack, int* result_length) {
-    if (!needle || !haystack) return NULL;
-
-    int n = needle->len;
-    size_t len = (n + 1 < MATCH_MAX_LEN) ? n + 1 : MATCH_MAX_LEN;
-
-    int* positions = malloc(len * sizeof(int));
-    if (!positions) return NULL;
-
-    // Fill the array with -1
-    memset(positions, -1, len * sizeof(int));
-
-    match_positions(needle, haystack, positions);
-
-    *result_length = len;
-
-    return positions;
-}
-
-
-
-// String builder for efficient string concatenation
-struct string_builder {
-    char* buf;
-    size_t len;
-    size_t cap;
-};
-
-static struct string_builder* sb_new(size_t initial_cap) {
-    struct string_builder* sb = malloc(sizeof(struct string_builder));
-    if (!sb) return NULL;
-
-    sb->buf = malloc(initial_cap);
-    if (!sb->buf) {
-        free(sb);
-        return NULL;
-    }
-
-    sb->len = 0;
-    sb->cap = initial_cap;
-    sb->buf[0] = '\0';
-    return sb;
-}
-
-static int sb_ensure_space(struct string_builder* sb, size_t additional) {
-    if (sb->len + additional + 1 > sb->cap) {
-        size_t new_cap = sb->cap * 2;
-        while (new_cap < sb->len + additional + 1) {
-            new_cap *= 2;
-        }
-
-        char* new_buf = realloc(sb->buf, new_cap);
-        if (!new_buf) return 0;
-
-        sb->buf = new_buf;
-        sb->cap = new_cap;
-    }
-    return 1;
-}
-
-static int sb_append(struct string_builder* sb, const char* str) {
-    size_t len = strlen(str);
-    if (!sb_ensure_space(sb, len)) return 0;
-
-    memcpy(sb->buf + sb->len, str, len);
-    sb->len += len;
-    sb->buf[sb->len] = '\0';
-    return 1;
-}
-
-static void append_pango_escaped_char(struct string_builder* sb, uint32_t c) {
-    switch (c) {
-        case '&':
-            sb_append(sb, "&amp;");
-            break;
-        case '<':
-            sb_append(sb, "&lt;");
-            break;
-        case '>':
-            sb_append(sb, "&gt;");
-            break;
-        case '\'':
-            sb_append(sb, "&apos;");
-            break;
-        case '"':
-            sb_append(sb, "&quot;");
-            break;
-        default: {
-            char buf[8];  // UTF-8 needs at most 4 bytes + null
-            if (c < 0x80) {
-                buf[0] = (char)c;
-                buf[1] = '\0';
-            } else {
-                size_t len = 0;
-                if (c < 0x800) {
-                    buf[len++] = 0xC0 | (c >> 6);
-                    buf[len++] = 0x80 | (c & 0x3F);
-                } else if (c < 0x10000) {
-                    buf[len++] = 0xE0 | (c >> 12);
-                    buf[len++] = 0x80 | ((c >> 6) & 0x3F);
-                    buf[len++] = 0x80 | (c & 0x3F);
-                } else {
-                    buf[len++] = 0xF0 | (c >> 18);
-                    buf[len++] = 0x80 | ((c >> 12) & 0x3F);
-                    buf[len++] = 0x80 | ((c >> 6) & 0x3F);
-                    buf[len++] = 0x80 | (c & 0x3F);
-                }
-                buf[len] = '\0';
-            }
-            sb_append(sb, buf);
-            break;
-        }
-    }
-}
-
-// Get next UTF-8 character and its length
 static size_t get_next_utf8(const char* text, uint32_t* c) {
     if (!text || !*text) {
         *c = 0;
@@ -237,57 +83,232 @@ static size_t get_next_utf8(const char* text, uint32_t* c) {
     return len;
 }
 
-char* highlight_apply_highlights(const char* text, const char* highlight_color, const int* positions, size_t positions_len) {
-    if (!text) return NULL;
-    if (!positions) return strdup(text);
 
-    struct string_builder* sb = sb_new(strlen(text) * 2);  // Initial estimate
-    if (!sb) return NULL;
+// Format accent color for Pango markup (backward compatibility)
+static void highlight_format_accent_color(const GdkRGBA* rgba) {
+    if (!rgba) return;
 
+    unsigned int r = (unsigned int)(rgba->red * 255.0 + 0.5);
+    unsigned int g = (unsigned int)(rgba->green * 255.0 + 0.5);
+    unsigned int b = (unsigned int)(rgba->blue * 255.0 + 0.5);
+    int pango_alpha = (int)(rgba->alpha * 100.0 + 0.5);
+
+    snprintf(match_highlight, sizeof(match_highlight),
+             "<span foreground=\"#%02x%02x%02x\" alpha=\"%d%%\">",
+             r, g, b, pango_alpha);
+}
+
+// Public API - Get accent color
+GdkRGBA* highlight_get_accent_color() {
+    return &accent_rgba;
+}
+
+// Public API - Get Pango accent string (backward compatibility)
+const char* highlight_get_pango_accent() {
+    return match_highlight;
+}
+
+// Public API - Set accent color
+void highlight_set_accent_color(const char* color) {
+    if (!color) return;
+    highlight_parse_color(color, &accent_rgba);
+    highlight_format_accent_color(&accent_rgba);
+}
+
+// Get match positions
+int* match_positions_with_markup(needle_info* needle, const char* haystack, int* result_length) {
+    if (!needle || !haystack) return NULL;
+
+    int n = needle->len;
+    size_t len = (n + 1 < MATCH_MAX_LEN) ? n + 1 : MATCH_MAX_LEN;
+
+    int* positions = malloc(len * sizeof(int));
+    if (!positions) return NULL;
+
+    memset(positions, -1, len * sizeof(int));
+    match_positions(needle, haystack, positions);
+
+    *result_length = len;
+    return positions;
+}
+
+HighlightPositions* highlight_calculate_positions(needle_info* needle, const char* text) {
+    if (!needle || !text) return NULL;
+
+    int positions_length = 0;
+    int* char_positions = match_positions_with_markup(needle, text, &positions_length);
+    if (!char_positions) return NULL;
+
+    HighlightPositions* result = malloc(sizeof(HighlightPositions));
+    if (!result) {
+        free(char_positions);
+        return NULL;
+    }
+
+    // Pre-allocate for worst case
+    result->byte_ranges = malloc(positions_length * 2 * sizeof(size_t));
+    result->range_count = 0;
+
+    // Convert character positions to byte ranges
     size_t pos_idx = 0;
-    int in_highlight = 0;
-    int counter = 0;
+    int char_counter = 0;
+    gboolean in_highlight = FALSE;
+    size_t highlight_start_byte = 0;
 
     const char* p = text;
-    while (*p) {
+    size_t byte_pos = 0;
+
+    while (*p && pos_idx < positions_length) {
         uint32_t c;
         size_t char_len = get_next_utf8(p, &c);
         if (char_len == 0) break;
 
-        if (pos_idx < positions_len && positions[pos_idx] == counter) {
-            pos_idx++;
+        if (char_positions[pos_idx] == char_counter) {
             if (!in_highlight) {
-                sb_append(sb, highlight_color);
-                in_highlight = 1;
+                highlight_start_byte = byte_pos;
+                in_highlight = TRUE;
             }
+            pos_idx++;
         } else if (in_highlight) {
-            sb_append(sb, "</span>");
-            in_highlight = 0;
+            // Store the range
+            result->byte_ranges[result->range_count * 2] = highlight_start_byte;
+            result->byte_ranges[result->range_count * 2 + 1] = byte_pos;
+            result->range_count++;
+            in_highlight = FALSE;
         }
 
-        append_pango_escaped_char(sb, c);
-        counter++;
+        char_counter++;
+        byte_pos += char_len;
         p += char_len;
     }
 
+    // Handle case where highlight extends to end
     if (in_highlight) {
-        sb_append(sb, "</span>");
+        result->byte_ranges[result->range_count * 2] = highlight_start_byte;
+        result->byte_ranges[result->range_count * 2 + 1] = byte_pos;
+        result->range_count++;
     }
 
-    char* result = sb->buf;
-    free(sb);
+    free(char_positions);
+
+    // Shrink to actual size
+    if (result->range_count > 0) {
+        result->byte_ranges = realloc(result->byte_ranges,
+                                      result->range_count * 2 * sizeof(size_t));
+    } else {
+        free(result->byte_ranges);
+        result->byte_ranges = NULL;
+    }
+
     return result;
 }
 
-char* highlight_format_highlights(const char* text, const char* highlight_color, needle_info* si) {
-    if (!text || !si) return NULL;
+PangoAttrList* highlight_apply_style_range(const HighlightPositions* positions,
+                                          HighlightStyle style,
+                                          const GdkRGBA* color,
+                                          size_t range_start_byte,
+                                          size_t range_end_byte) {
+    PangoAttrList* attr_list = pango_attr_list_new();
+    if (!positions || !positions->byte_ranges) return attr_list;
 
-    int positions_length = 0;
+    for (size_t i = 0; i < positions->range_count; i++) {
+        size_t start = positions->byte_ranges[i * 2];
+        size_t end = positions->byte_ranges[i * 2 + 1];
 
-    int* positions = match_positions_with_markup(si, text, &positions_length);
-    if (!positions) return strdup(text);
+        // Check if this range intersects with our desired range
+        if (end <= range_start_byte || start >= range_end_byte) {
+            continue; // No intersection, skip this range
+        }
 
-    char* result = highlight_apply_highlights(text, highlight_color, positions, positions_length);
-    free(positions);
-    return result;
+        // Calculate intersection and adjust to range coordinates
+        size_t adjusted_start = (start > range_start_byte) ? start - range_start_byte : 0;
+        size_t adjusted_end = (end < range_end_byte) ? end - range_start_byte : range_end_byte - range_start_byte;
+
+        if (style & HIGHLIGHT_STYLE_COLOR) {
+            PangoAttribute* attr = pango_attr_foreground_new(
+                (guint16)(color->red * 65535),
+                (guint16)(color->green * 65535),
+                (guint16)(color->blue * 65535)
+            );
+            attr->start_index = adjusted_start;
+            attr->end_index = adjusted_end;
+            pango_attr_list_insert(attr_list, attr);
+
+            if (color->alpha < 1.0) {
+                PangoAttribute* alpha_attr = pango_attr_foreground_alpha_new(
+                    (guint16)(color->alpha * 65535)
+                );
+                alpha_attr->start_index = adjusted_start;
+                alpha_attr->end_index = adjusted_end;
+                pango_attr_list_insert(attr_list, alpha_attr);
+            }
+        }
+
+        if (style & HIGHLIGHT_STYLE_UNDERLINE) {
+            PangoAttribute* attr = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
+            attr->start_index = adjusted_start;
+            attr->end_index = adjusted_end;
+            pango_attr_list_insert(attr_list, attr);
+        }
+
+        if (style & HIGHLIGHT_STYLE_BOLD) {
+            PangoAttribute* attr = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
+            attr->start_index = adjusted_start;
+            attr->end_index = adjusted_end;
+            pango_attr_list_insert(attr_list, attr);
+        }
+
+        if (style & HIGHLIGHT_STYLE_BACKGROUND) {
+            PangoAttribute* attr = pango_attr_background_new(
+                (guint16)(color->red * 65535),
+                (guint16)(color->green * 65535),
+                (guint16)(color->blue * 65535)
+            );
+            attr->start_index = adjusted_start;
+            attr->end_index = adjusted_end;
+            pango_attr_list_insert(attr_list, attr);
+
+            if (color->alpha < 1.0) {
+                PangoAttribute* alpha_attr = pango_attr_background_alpha_new(
+                    (guint16)(color->alpha * 65535)
+                );
+                alpha_attr->start_index = adjusted_start;
+                alpha_attr->end_index = adjusted_end;
+                pango_attr_list_insert(attr_list, alpha_attr);
+            }
+        }
+
+        if (style & HIGHLIGHT_STYLE_STRIKETHROUGH) {
+            PangoAttribute* attr = pango_attr_strikethrough_new(TRUE);
+            attr->start_index = adjusted_start;
+            attr->end_index = adjusted_end;
+            pango_attr_list_insert(attr_list, attr);
+        }
+    }
+
+    return attr_list;
+}
+
+PangoAttrList* highlight_apply_style(const HighlightPositions* positions,
+                                     HighlightStyle style,
+                                     const GdkRGBA* color) {
+    return highlight_apply_style_range(positions, style, color, 0, SIZE_MAX);
+}
+
+
+PangoAttrList* highlight_create_attr_list(needle_info* needle, const char* text,
+                                          HighlightStyle style) {
+    HighlightPositions* positions = highlight_calculate_positions(needle, text);
+    if (!positions) return pango_attr_list_new();
+
+    PangoAttrList* attrs = highlight_apply_style(positions, style, &accent_rgba);
+    highlight_positions_free(positions);
+    return attrs;
+}
+
+void highlight_positions_free(HighlightPositions* positions) {
+    if (positions) {
+        free(positions->byte_ranges);
+        free(positions);
+    }
 }

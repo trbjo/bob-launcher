@@ -44,7 +44,7 @@ namespace BobLauncher {
 
             if (orientation == Gtk.Orientation.VERTICAL) {
                 qc.measure(Gtk.Orientation.VERTICAL, -1, null, out qc_height, null, null);
-                progress_indicator.measure(Gtk.Orientation.VERTICAL, for_size, null, out bar_height, null, null);
+                progress_indicator.measure(Gtk.Orientation.VERTICAL, -1, null, out bar_height, null, null);
                 result_box.measure(Gtk.Orientation.VERTICAL, -1, null, out box_height, null, null);
                 minimum = natural = qc_height + box_height;
             } else {
@@ -91,11 +91,22 @@ namespace BobLauncher {
         private void handle_click_release(Gtk.GestureClick controller, int n_press, double x, double y) {
             unowned Gtk.Widget? picked_widget = result_box.pick(x, y, Gtk.PickFlags.DEFAULT);
             if (picked_widget == null) return;
-            var action = (FragmentAction)picked_widget.get_data<Object>("fragment");
-            if (action != null) {
+            bool ctrl_pressed = false;
+            var display = controller.get_device().get_display();
+            var seat = display.get_default_seat();
+            var keyboard = seat.get_keyboard();
+
+            if (keyboard != null) {
+                var modifier_state = keyboard.get_modifier_state();
+                ctrl_pressed = (modifier_state & Gdk.ModifierType.CONTROL_MASK) != 0;
+            }
+
+
+            var frag = (Description)picked_widget.get_data<Description>("fragment");
+            if (frag != null && frag.fragment_func != null) {
                 try {
-                    action.func();
-                    App.main_win.set_visible(false);
+                    frag.fragment_func();
+                    if (!ctrl_pressed) App.main_win.set_visible(false);
                 } catch (Error e) {
                     warning("Failed to execute fragment action: %s", e.message);
                 }
@@ -104,7 +115,7 @@ namespace BobLauncher {
                 if (item != null) {
                     unowned MatchRow mr = (MatchRow)item;
                     Controller.goto_match_abs(mr.abs_index);
-                    Controller.execute(true);
+                    Controller.execute(!ctrl_pressed);
                 }
             }
         }

@@ -139,7 +139,7 @@ bool string_builder_erase(StringBuilder* sb, size_t pos, size_t len) {
 
 /* Main implementation */
 HashSet* state_empty_provider(int event_id) {
-    return hashset_create ("", event_id, 1);
+    return hashset_create("", event_id);
 }
 
 void state_initialize() {

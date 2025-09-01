@@ -3,14 +3,18 @@
 #include <assert.h>
 #include <glib.h>
 #include <gtk/gtk.h>
+#include "file-monitor.h"
 
 #define FALLBACK "image-missing"
 #define BOB_LAUNCHER_OBJECT_PATH "/io/github/trbjo/bob/launcher"
+#define DEBOUNCE_TIMEOUT_MS 100
 
 static atomic_int lock_token;
 static GHashTable *mime_type_map;
 static GHashTable *icon_cache;
 static GtkIconTheme *theme;
+static file_monitor *monitor;
+static guint debounce_timer_id = 0;
 
 static inline void spin_lock(atomic_int *lock) {
     while (atomic_exchange(lock, 1)) {
@@ -27,6 +31,46 @@ static void clear_cache() {
     g_hash_table_remove_all(mime_type_map);
     g_hash_table_remove_all(icon_cache);
     spin_unlock(&lock_token);
+}
+
+static gboolean debounced_cache_clear(gpointer user_data) {
+    clear_cache();
+    debounce_timer_id = 0;
+    return G_SOURCE_REMOVE;
+}
+
+static void on_file_change(const char* path, int event_type) {
+    if (debounce_timer_id != 0) {
+        g_source_remove(debounce_timer_id);
+    }
+
+    debounce_timer_id = g_timeout_add(DEBOUNCE_TIMEOUT_MS, debounced_cache_clear, NULL);
+}
+
+static void setup_directory_monitoring() {
+    if (monitor != NULL) {
+        file_monitor_destroy(monitor);
+        monitor = NULL;
+    }
+
+    monitor = file_monitor_new(on_file_change);
+    if (monitor == NULL) {
+        return;
+    }
+
+    char **search_path = NULL;
+    int n_elements = 0;
+
+    g_object_get(theme, "search-path", &search_path, NULL);
+
+    if (search_path == NULL) return;
+    for (n_elements = 0; search_path[n_elements] != NULL; n_elements++) { }
+
+    if (n_elements > 0) {
+        file_monitor_add_paths_recursive(monitor, (const char**)search_path, n_elements);
+    }
+
+    g_strfreev(search_path);
 }
 
 static uint compute_composite_hash(const char *str, int size, int scale_factor) {
@@ -48,13 +92,21 @@ static uint compute_composite_hash(const char *str, int size, int scale_factor) 
     return str_part | scale_part | size_part;
 }
 
+static void on_theme_changed(GtkIconTheme *theme, gpointer user_data) {
+    clear_cache();
+    setup_directory_monitoring();
+}
+
 void icon_cache_service_initialize() {
     icon_cache = g_hash_table_new(g_direct_hash, g_direct_equal);
-    mime_type_map = g_hash_table_new(g_str_hash, g_str_equal);
+    mime_type_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
     gtk_icon_theme_add_resource_path(theme, BOB_LAUNCHER_OBJECT_PATH);
-    g_signal_connect(theme, "changed", G_CALLBACK(clear_cache), NULL);
+
+    g_signal_connect(theme, "changed", G_CALLBACK(on_theme_changed), NULL);
+
+    setup_directory_monitoring();
 }
 
 GdkPaintable* icon_cache_service_get_paintable_for_icon_name(const char *icon_name, int size, int scale) {

@@ -10,6 +10,16 @@
     <child name="ui" schema="io.github.trbjo.bob.launcher.ui"/>
     <child name="keybindings" schema="io.github.trbjo.bob.launcher.keybindings"/>
     <child name="plugins" schema="io.github.trbjo.bob.launcher.plugins"/>
+
+    <key name="systemd-slice" type="s">
+      <default>''</default>
+      <summary>If BobLauncher is running in a systemd session, it will use this slice for launched apps. The string must include the suffix ".slice". If empty or invalid, launched programs will use the same slice as BobLauncher</summary>
+    </key>
+    <key name="terminal-emulator" type="s">
+      <default>'alacritty -e'</default>
+      <summary>Default terminal emulator</summary>
+    </key>
+
   </schema>
 
   <schema id="io.github.trbjo.bob.launcher.layershell" path="/io/github/trbjo/bob/launcher/layershell/">
@@ -48,6 +58,22 @@
       <summary>Hide BobLauncher after successful drag and drop</summary>
       <description>Whether BobLauncher will hide after a successful drag and drop operation. This is disabled by default when the window is inactive</description>
     </key>
+    <key name="prefer-dark-theme" type="b">
+      <default>false</default>
+      <summary>prefer dark theme</summary>
+    </key>
+    <key name="tooltip-max-width" type="i">
+      <default>800</default>
+      <summary>Tooltip max width</summary>
+    </key>
+    <key name="tooltip-max-height" type="i">
+      <default>400</default>
+      <summary>Tooltip max height</summary>
+    </key>
+    <key name="highlight-style" type="s">
+      <default>'underline'</default>
+      <summary>Highlight style</summary>
+    </key>
     <key name="box-size" type="i">
       <default>7</default>
       <range min="1" max="10"/>
@@ -80,7 +106,7 @@
     </key>
     <key name="match-description-next-to-title" type="b">
       <default>false</default>
-      <summary>Match description layout</summary>
+      <summary>Match description next to title</summary>
       <description>If true, shows match descriptions next to titles (Krunner style). If false, shows them below (Alfred style).</description>
     </key>
     <key name="match-icon-size" type="i">
@@ -97,6 +123,10 @@
       <default>true</default>
       <summary>Client Side Shadow</summary>
       <description>Whether BobLauncher should try to draw its own shadow. If you use your own stylesheet, this won't work.</description>
+    </key>
+    <key name="inhibit-system-shortcuts" type="b">
+      <default>true</default>
+      <summary>Inhibit system shortcuts</summary>
     </key>
   </schema>
 
@@ -278,6 +308,16 @@
       <default>['&lt;Control&gt;0']</default>
       <summary>Select tenth match</summary>
       <description>Keyboard shortcuts to select the tenth match in the results list.</description>
+    </key>
+    <key name="sneak-peek" type="as">
+      <default>['Super_L']</default>
+      <summary>SneakPeek highlight.</summary>
+      <description>Shows a preview of the file if supported by your system</description>
+    </key>
+    <key name="sneak-peek-release" type="as">
+      <default>['&lt;Super&gt;Super_L']</default>
+      <summary>Release SneakPeek highlight</summary>
+      <description>Keyboard shortcuts to deactivate the match highlight feature when released.</description>
     </key>
   </schema>
 </schemalist>

@@ -11,7 +11,7 @@
 #include <float.h>
 #include <math.h>
 
-typedef double Score;
+typedef int16_t Score;
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef struct _BobLauncherAction BobLauncherAction;
 typedef struct _BobLauncherPluginBase BobLauncherPluginBase;
@@ -43,7 +43,7 @@ ActionSetInternal* action_set_new(BobLauncherMatch* m, const char* query, int cu
     self->query_empty = g_utf8_strlen(query, -1) == 0;
     self->si = prepare_needle(query);
     self->score_threshold = score_threshold;
-    self->hsh = hashset_create(query, current_event, 1);
+    self->hsh = hashset_create(query, current_event);
     self->rc = hashset_create_handle(self->hsh);
 
     return self;
@@ -62,7 +62,8 @@ void action_set_free(ActionSetInternal* self) {
 HashSet* action_set_to_hashset(ActionSetInternal* self) {
     if (!self) return NULL;
 
-    hashset_complete_merge(self->hsh, self->rc);
+    hashset_merge(self->hsh, self->rc);
+    hashset_prepare(self->hsh);
     return self->hsh;
 }
 
@@ -83,28 +84,28 @@ void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
         return;
     }
 
+    uint64_t identity = (uint64_t)(uintptr_t)action;
+
     if (self->query_empty) {
-        result_container_add_lazy_unique(self->rc, basic_relevancy,
+        result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
                                          (MatchFactory)create_match_from_action,
                                          action, NULL);
     } else {
         char* title = bob_launcher_match_get_title((BobLauncherMatch*)action);
         if (title && query_has_match(self->si, title)) {
             basic_relevancy = match_score(self->si, title);
-            result_container_add_lazy_unique(self->rc, basic_relevancy,
+            result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
                                              (MatchFactory)create_match_from_action,
                                              action, NULL);
         } else {
             char* desc = bob_launcher_match_get_description((BobLauncherMatch*)action);
             if (desc && query_has_match(self->si, desc)) {
                 basic_relevancy = match_score(self->si, desc);
-                result_container_add_lazy_unique(self->rc, basic_relevancy,
+                result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
                                                  (MatchFactory)create_match_from_action,
                                                  action, NULL);
             }
         }
-        // g_free(title);
-        // g_free(desc);
     }
 }
 

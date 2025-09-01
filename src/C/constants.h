@@ -1,30 +1,28 @@
 #pragma once
-
 #define BOB_LAUNCHER_APP_ID "io.github.trbjo.bob.launcher"
 #define BOB_LAUNCHER_OBJECT_PATH "/io/github/trbjo/bob/launcher"
 
+#define LOWEST -1024
+#define BELOW_THRESHOLD -1;
+#define NONE 0
+#define TIEBREAKER 2
+#define DECREMENT_MINOR 160
+#define DECREMENT_MEDIUM 100
+#define DECREMENT_MAJOR 60
+#define INCREMENT_MINOR 240
+#define INCREMENT_SMALL 500
+#define INCREMENT_MEDIUM 700
+#define INCREMENT_LARGE 900
+#define INCREMENT_HUGE 1100
+#define MATCH_SCORE_THRESHOLD 600
+#define ABOVE_THRESHOLD 1020
+#define BELOW_AVERAGE 1200
+#define AVERAGE 1400
+#define ABOVE_AVERAGE 1600
+#define GOOD 1800
+#define VERY_GOOD 2400
+#define EXCELLENT 3000
+#define PRETTY_HIGH 6000
+#define HIGHEST 8191
 
-#define LOWEST -100.0
-#define NONE 0.0
-#define TIEBREAKER 0.01
-#define DECREMENT_MINOR 0.8
-#define DECREMENT_MEDIUM 0.5
-#define DECREMENT_MAJOR 0.3
-#define INCREMENT_MINOR 1.2
-#define INCREMENT_SMALL 2.5
-#define INCREMENT_MEDIUM 3.5
-#define INCREMENT_LARGE 4.5
-#define INCREMENT_HUGE 5.5
-
-#define BELOW_THRESHOLD -100.0
-#define MATCH_SCORE_THRESHOLD 0
-#define ABOVE_THRESHOLD 5.1
-#define BELOW_AVERAGE 6
-#define AVERAGE 7
-#define ABOVE_AVERAGE 8
-#define GOOD 9
-#define VERY_GOOD 12.0
-#define EXCELLENT 15.0
-#define PRETTY_HIGH 1000.0
-
-#define HIGHEST 10000.0
+#include <stdint.h>

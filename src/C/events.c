@@ -11,6 +11,5 @@ int32_t events_get() {
 }
 
 int32_t events_increment() {
-    int32_t val = atomic_fetch_add(&_event, 1);
-    return val + 1;
+    return atomic_fetch_add(&_event, 1) + 1;
 }

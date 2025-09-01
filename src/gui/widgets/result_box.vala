@@ -55,6 +55,7 @@ namespace BobLauncher {
         }
 
         internal void update_layout(Hash.HashSet provider, int selected_index) {
+            LauncherWindow.up_down_handle.visible = provider.size > 0;
             int old_visible = visible_size;
             int provider_size = int.max(0, provider.size);
             visible_size = int.min(provider_size, box_size);

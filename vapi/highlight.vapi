@@ -1,23 +1,37 @@
+[CCode (cheader_filename = "highlight.h")]
 namespace Highlight {
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_set_accent_color")]
+    [CCode (cname = "HighlightStyle", cprefix = "HIGHLIGHT_STYLE_", has_type_id = false)]
+    [Flags]
+    internal enum Style {
+        COLOR = 1 << 0,
+        UNDERLINE = 1 << 1,
+        BOLD = 1 << 2,
+        BACKGROUND = 1 << 3,
+        STRIKETHROUGH = 1 << 4
+    }
+
+    [CCode (cname = "HighlightPositions", free_function = "highlight_positions_free")]
+    [Compact]
+    internal class Positions {
+        [CCode (cname = "highlight_calculate_positions")]
+        public Positions(Levensteihn.StringInfo needle, string text);
+    }
+
+    [CCode (cname = "highlight_set_accent_color")]
     internal static void set_accent_color(string? color);
 
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_get_accent_color")]
+    [CCode (cname = "highlight_get_accent_color")]
     internal static unowned Gdk.RGBA? get_accent_color();
 
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_get_pango_accent")]
+    [CCode (cname = "highlight_get_pango_accent")]
     internal static unowned string? get_pango_accent();
 
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_parse_color")]
-    internal static void parse_color(string color, out uint r, out uint g, out uint b, out uint a);
+    [CCode (cname = "highlight_apply_style")]
+    internal static Pango.AttrList apply_style(Positions positions, Style style, Gdk.RGBA color);
 
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_apply_highlights")]
-    internal static string? apply_highlights(string? text, string? highlight_color, [CCode (array_length_type = "size_t")] int[] positions);
+    [CCode (cname = "highlight_apply_style_range")]
+    internal static Pango.AttrList apply_style_range(Positions positions, Style style, Gdk.RGBA color, uint start, uint end);
 
-    [CCode (cheader_filename = "highlight.h", cname = "highlight_format_highlights")]
-    internal static string? format_highlights(string? text, string? highlight_color, Levensteihn.StringInfo si);
-
-    [CCode (cheader_filename = "highlight.h", cname = "match_positions_with_markup")]
-    private static int[] match_positions_with_markup(Levensteihn.StringInfo needle, string? haystack);
-
+    [CCode (cname = "highlight_create_attr_list")]
+    internal static Pango.AttrList create_attr_list(Levensteihn.StringInfo needle, string text, Style style);
 }

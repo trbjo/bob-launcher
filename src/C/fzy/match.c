@@ -2,7 +2,6 @@
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
-#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -192,7 +191,7 @@ score_t match_score(const needle_info* needle, const char* haystack_str) {
 }
 
 score_t match_positions(const needle_info *needle, const char *haystack_str, int *positions) {
-	if (!needle)
+	if (!needle || needle->len == 0)
 		return SCORE_MIN;
 
 	haystack_info haystack;
@@ -243,7 +242,7 @@ score_t match_positions(const needle_info *needle, const char *haystack_str, int
 			 * Convert j (character position) to byte offset
 			 */
 			if (D[i][j] > SCORE_MIN && (match_required || D[i][j] == M[i][j])) {
-				match_required = i && j && M[i][j] == D[i - 1][j - 1] + SCORE_MATCH_CONSECUTIVE;
+				match_required = (i > 0 && j > 0) && (M[i][j] == D[i - 1][j - 1] + SCORE_MATCH_CONSECUTIVE);
 				positions[i] = j--;
 				break;
 			}

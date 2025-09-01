@@ -2,11 +2,67 @@
 @define-color inactive_shadow alpha(black, 0.3);
 @define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.8);
 
+
+ensure-paint {
+    min-width: 10px;
+    min-height: 10px;
+    background: red;
+}
+
 .tiled-left,
 .tiled-top,
 .tiled-bottom,
 .tiled-right {
     box-shadow: none;
+}
+
+handle {
+    transition-property: background, min-height, min-width;
+    transition-timing-function: ease-out;
+    transition-duration: 150ms;
+    transition-delay: 50ms;
+}
+
+window > handle.horizontal {
+    min-width: 4px;
+    border-radius: 0 10px 10px 0;
+}
+window > handle.horizontal:hover {
+    min-width: 20px;
+}
+
+window > handle.vertical {
+    min-height: 10px;
+    border-radius: 0 0 10px 10px;
+}
+
+window > handle.vertical:hover {
+    min-height: 20px;
+}
+
+window > handle.horizontal:hover {
+    background: radial-gradient(ellipse 100% 60% at center right,
+        alpha(black, 0.3) 0,
+        alpha(black, 0.25) 20%,
+        alpha(black, 0.15) 40%,
+        alpha(black, 0.05) 70%,
+        transparent 100%);
+}
+
+window > handle.vertical:hover {
+    background: radial-gradient(ellipse 60% 100% at bottom center,
+        alpha(black, 0.3) 0,
+        alpha(black, 0.25) 20%,
+        alpha(black, 0.15) 40%,
+        alpha(black, 0.05) 70%,
+        transparent 100%);
+}
+
+.tooltip-color {
+    min-height: 40px;
+    min-width: 100px;
+    margin: 4px;
+    border-radius: 8px;
 }
 
 window#launcher { background: none; }
@@ -17,6 +73,7 @@ window#launcher match-row {
 
 window#launcher match-row:selected {
     background: @selected_match_row;
+    color: @theme_text_color;
 }
 
 #result-box matchrow-separator:first-child,
@@ -30,19 +87,19 @@ window#launcher match-row:selected {
 }
 
 window#launcher.client-side-shadow #main-container {
-    box-shadow: 0 6px 30px 0px @shadow;
-    margin: 46px 40px 46px 40px;
+    box-shadow: 0 4px 15px 4px #0000006A;
+    margin: 30px 24px 30px 24px;
 }
 
 window#launcher.client-side-shadow:backdrop #main-container {
-    box-shadow: 0 6px 30px 0px @inactive_shadow;
+    box-shadow: 0 4px 15px 4px #00000024;
 }
 
 window#launcher.client-side-border #main-container {
     border-radius: 10px;
     border-width: 1px;
     border-style: solid;
-    border-color: @main_container_border;
+    border-color: @separator_color;
 }
 
 match-row {
@@ -52,13 +109,12 @@ match-row {
 #main-container {
     transition-property: box-shadow, margin, border-radius;
     transition-timing-function: ease-out;
-    transition-duration: 300ms;
+    transition-duration: 100ms;
 }
 
 window#launcher text-image,
-window#launcher match-row-label,
-#query-container {
-    transition-duration: 300ms;
+window#launcher match-row-label {
+    transition-duration: 100ms;
 }
 
 window#launcher text-image,
@@ -74,19 +130,78 @@ window#launcher:backdrop match-row-label {
 #query-container {
     background: @bg_transparent;
     padding: 8px 8px;
+    font-size: 24pt;
+    font-weight: 300;
 }
 
-#query-container:backdrop {
-    color: @theme_unfocused_fg_color;
+@keyframes backdrop-dim {
+    0%   { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
+    5%   { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
+    10%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
+    15%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
+    20%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
+    25%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
+    30%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
+    35%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
+    40%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
+    45%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
+    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
+    55%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
+    60%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
+    65%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
+    70%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
+    75%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
+    80%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
+    85%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
+    90%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
+    95%  { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
+    100% { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
 }
 
-#query-container > #draggable-image {
-    padding-left: 4px;
+@keyframes backdrop-undim {
+    0%   { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
+    5%   { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
+    10%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
+    15%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
+    20%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
+    25%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
+    30%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
+    35%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
+    40%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
+    45%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
+    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
+    55%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
+    60%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
+    65%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
+    70%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
+    75%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
+    80%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
+    85%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
+    90%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
+    95%  { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
+    100% { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
 }
 
 #query-container {
-    font-size: 24pt;
-    font-weight: 300;
+    --backdrop-alpha: 1.0;
+    color: alpha(@theme_text_color, var(--backdrop-alpha));
+}
+
+#query-container:backdrop {
+    animation: backdrop-dim 100ms ease forwards;
+}
+
+#query-container:not(:backdrop) {
+    animation: backdrop-undim 100ms ease forwards;
+}
+
+#query-container.query-empty {
+    color: alpha(@theme_text_color, var(--placeholder-alpha));
+}
+
+
+#query-container > #draggable-image {
+    padding-left: 4px;
 }
 
 #progress-indicator {
@@ -99,28 +214,82 @@ match-row match-row-label.description text-image {
 }
 
 match-row match-row-label.description {
-    font-size: 12px;
+    font-size: 9pt;
 }
 
-match-row .description .fragment {
-    margin: 0 0 0 2px;
+match-row match-row-label.description > box > box.description-container .description-text,
+match-row match-row-label.description box .timestamp {
+    font-size: 0;
+    opacity: 0;
+    transition: font-size 300ms, opacity 300ms ease 0;
 }
 
-match-row .description .fragment:first-child {
-    margin: 0;
+
+/*match-row match-row-label.description > box > box.uptime-container,*/
+match-row match-row-label.description > box > box.state-container,
+match-row match-row-label.description > box > box.pid-container,
+match-row match-row-label.description > box > box.flags-container {
+    min-width: 30px;
 }
 
-match-row match-row-label.description label.fragment:hover:not(:first-child) {
+match-row match-row-label.description > box > box {
+    margin-left: 2px;
+    margin-right: 2px;
+}
+match-row match-row-label.description > box > box > label {
+    /*background: blue;*/
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+
+match-row match-row-label.description > box > box.cpu-container {
+    min-width: 54px;
+}
+match-row match-row-label.description > box > box.state-container {
+    min-width: 44px;
+}
+match-row match-row-label.description > box.process-description > box.memory-container {
+    min-width: 80px;
+}
+
+match-row match-row-label.description > box > box:first-child {
+    margin-left: 0;
+}
+
+match-row match-row-label.description > box > box.description-container:hover .description-text,
+match-row match-row-label.description box.timestamp-group:hover .timestamp {
+    font-size: 9pt;
+    transition: font-size 300ms, opacity 300ms ease 200ms;
+    opacity: 1;
+}
+
+match-row.horizontal match-row-label.description * {
+    opacity: 0.6;
+}
+
+text-image.clickable:hover {
+    box-shadow:
+    0 0.5px @theme_text_color,
+    0 -0.5px inset @theme_text_color;
+    border-color: @theme_text_color;
+    border-style: solid;
+}
+match-row match-row-label.description label.clickable:hover {
     text-decoration: underline;
 }
 
+match-row.horizontal > .description {
+    margin-left: 4px;
+}
+
 match-row > .title,
-match-row > .description {
+match-row.vertical > .description {
     margin-left: 8px;
 }
 
 match-row {
-    padding: 4px 8px;
+    padding: 3px 8px;
 }
 
 window#launcher.highlighted match-row:selected .shortcut {
@@ -128,7 +297,7 @@ window#launcher.highlighted match-row:selected .shortcut {
 }
 
 match-row row-number {
-    min-width: 15px;
+    min-width: 0.8em;
 }
 
 window#launcher.highlighted match-row label.shortcut {
@@ -137,13 +306,9 @@ window#launcher.highlighted match-row label.shortcut {
 }
 
 match-row .shortcut {
-    color: @theme_unfocused_fg_color;
+    color: @unfocused_fg_color;
     transition: opacity 60ms, font-size 0ms linear 0ms, margin 60ms;
     opacity: 1.0;
-}
-
-window#launcher tooltip > box {
-    border-radius: 10px;
 }
 
 window#launcher tooltip > box > label.tooltip-label {
@@ -157,13 +322,28 @@ window#launcher tooltip > box > widget.tooltip-image {
 }
 
 window#launcher tooltip > box {
-    padding: 0;
+    margin: 2px 5px 10px 5px;
     border-radius: 10px;
-}
 
-window#launcher tooltip {
+    box-shadow: 0 1px 7px 0px @shadow;
+    border: 1px solid @separator_color;
     font-family: monospace;
 }
+
+window#launcher tooltip .tooltip-title {
+    font-family: sans;
+    font-weight: 500;
+    font-size: 1.1rem;
+}
+
+window#launcher tooltip .thumbnail-widget {
+    margin: 10px;
+    outline: 1px solid alpha(@borders, 0.5);
+    border-radius: 6px;
+    box-shadow: 0 1px 7px 0px @shadow;
+}
+
+
 
 window#launcher:not(.highlighted) match-row .shortcut {
     transition: opacity 60ms, font-size 0ms linear 60ms, min-width 60ms linear 60ms, margin 120ms;
@@ -182,12 +362,15 @@ window#launcher:not(.highlighted) match-row .shortcut {
 #text-cursor:backdrop {
     opacity: 0.0;
 }
+.placeholder-query #text-cursor {
+    background-color: @theme_text_color;
+}
 
 #text-cursor {
     animation: none;
     background-color: @theme_text_color;
     min-width: 1.5px;
-    transition: opacity 500ms;
+    transition: opacity 100ms;
     opacity: 1.0;
 }
 

@@ -39,10 +39,6 @@ namespace PluginLoader {
         }
     }
 
-    private static void sort_search_providers(Object obj, ParamSpec pspec) {
-        search_providers.sort((a, b) => (int)(a.shard_count - b.shard_count));
-    }
-
     internal static void initialize() {
         settings = BobLauncher.AppSettings.get_default().plugins;
 
@@ -145,21 +141,23 @@ namespace PluginLoader {
                         var search_provider = (BobLauncher.SearchBase)plugin;
                         search_providers.add(search_provider);
                         debug(@"Added search provider: $((search_provider).get_title())");
-                        search_provider.notify["shard-count"].connect(sort_search_providers);
                     }
 
                     loaded_modules.add(module);
                     loaded_plugins.add(plugin);
                     debug(@"Successfully loaded plugin: $plugin_name");
                 }
-                search_providers.sort((a, b) => (int)(a.shard_count - b.shard_count));
+                search_providers.sort(alpha_comp);
             } catch (Error e) {
                 warning(@"Failed to load plugins from $plugin_dir: $(e.message)");
                 continue;
             }
         }
+        debug(@"Finished loading plugins. Loaded $(loaded_plugins.length) plugins total");
+    }
 
-        message(@"Finished loading plugins. Loaded $(loaded_plugins.length) plugins total");
+    public static int alpha_comp(BobLauncher.PluginBase a, BobLauncher.PluginBase b) {
+        return strcmp(a.get_title(), b.get_title());
     }
 
     internal static void shutdown() {

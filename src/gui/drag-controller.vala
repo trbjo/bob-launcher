@@ -63,10 +63,10 @@ namespace BobLauncher {
         });
     }
 
-    internal static void setup_drag_controller(QueryContainer query_container, AppSettings.LayerShell layershell_settings, ShouldDrag drag_func) {
+    internal static void setup_drag_controller(QueryContainer query_container, AppSettings.LayerShell layershell_settings, owned ShouldDrag drag_func) {
         sm_rect = Graphene.Rect();
         settings = layershell_settings;
-        should_drag = drag_func;
+        should_drag = (owned)drag_func;
 
         drag_gesture = new Gtk.GestureDrag();
         query_container.add_controller(drag_gesture);
@@ -81,6 +81,7 @@ namespace BobLauncher {
             drag_gesture.set_state(Gtk.EventSequenceState.DENIED);
             return;
         }
+        drag_gesture.set_state(Gtk.EventSequenceState.CLAIMED); // ensure we don't trigger a click
         click_controller.set_state(Gtk.EventSequenceState.DENIED);
 
         Graphene.Point window_point = Graphene.Point();

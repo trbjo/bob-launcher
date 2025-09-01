@@ -1,13 +1,13 @@
 namespace BobLauncher {
     namespace DragAndDropHandler {
-        internal delegate Match? MatchFinderFunc(double x, double y);
+        internal delegate unowned Match? MatchFinderFunc(double x, double y);
 
         internal static void setup(Gtk.Widget widget, MatchFinderFunc match_finder) {
             var drag_source = new Gtk.DragSource();
             widget.add_controller(drag_source);
 
             drag_source.prepare.connect((source_origin, x, y) => {
-                var m = match_finder(x, y);
+                unowned Match? m = match_finder(x, y);
                 if (!(m is FileMatch)) {
                     drag_source.set_state(Gtk.EventSequenceState.DENIED);
                     return null;
