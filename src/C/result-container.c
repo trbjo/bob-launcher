@@ -14,10 +14,10 @@ ALWAYS_INLINE const char* result_container_get_query(ResultContainer* self) {
 
 static inline bool grab_sheet(ResultContainer* container) {
     ResultSheet** current_pos;
-    __atomic_load(container->read, &current_pos, __ATOMIC_SEQ_CST);
+    __atomic_load(container->read, &current_pos, __ATOMIC_RELAXED);
     while (*current_pos) {
         ResultSheet** next_pos = current_pos + 1;
-        if (atomic_compare_exchange_strong(container->read, &current_pos, next_pos)) {
+        if (atomic_compare_exchange_weak(container->read, &current_pos, next_pos)) {
             container->current_sheet = *current_pos;
             return true;
         }
@@ -85,10 +85,7 @@ void container_destroy(ResultContainer* container) {
     free(container->slots);
     container->slots = NULL;
 
-    for (size_t i = 0; i < container->owned_count; i++) {
-        free(container->owned_blocks[i]);
-    }
-    free(container->owned_blocks);
+    free(container->all_nodes);
 
     container->current_sheet = NULL;
     container->size = 0;

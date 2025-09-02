@@ -21,7 +21,7 @@ typedef struct {
     int event_id;
     needle_info* string_info;
     needle_info* string_info_spaceless;
-    char _padding1[CACHE_LINE_SIZE - (5 * sizeof(void*) + sizeof(int) + sizeof(int64_t))];
+    char _padding1[CACHE_LINE_SIZE - (5 * sizeof(void*) + sizeof(int))];
 
     // Group 2: Frequently updated size counter (own cache line)
     atomic_int size;

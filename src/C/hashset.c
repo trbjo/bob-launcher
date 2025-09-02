@@ -9,26 +9,25 @@
 #include <string.h>
 #include "hashset.h"
 
+_Atomic int64_t lol = 0LL;
+
+static int64_t get_monotonic_time() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + (int64_t)ts.tv_nsec / 1000;
+}
+
 static inline bool is_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    int sheet_idx = EXTRACT_SHEET_IDX(packed);
-    int item_idx = EXTRACT_ITEM_IDX(packed);
-    return sheet_pool[sheet_idx]->match_pool[item_idx] & DUPLICATE_FLAG;
+    return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)] & DUPLICATE_FLAG;
 }
 
 static inline uint128_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
-    int sheet_idx = EXTRACT_SHEET_IDX(packed);
-    int item_idx = EXTRACT_ITEM_IDX(packed);
-    return sheet_pool[sheet_idx]->match_pool[item_idx];
+    return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)];
 }
 
 static inline void mark_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    int sheet_idx = EXTRACT_SHEET_IDX(packed);
-    int item_idx = EXTRACT_ITEM_IDX(packed);
-    sheet_pool[sheet_idx]->match_pool[item_idx] |= DUPLICATE_FLAG;
+    sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)] |= DUPLICATE_FLAG;
 }
-
-#define get_is_duplicate_value(packed) \
-    (bool)((packed) & DUPLICATE_FLAG)
 
 HashSet* hashset_create(const char* query, int event_id) {
     HashSet* set = calloc(1, sizeof(HashSet));
@@ -37,10 +36,10 @@ HashSet* hashset_create(const char* query, int event_id) {
     set->query = strdup(query);
     set->event_id = event_id;
     atomic_init(&set->size, -1); // -1 is unfinished, 0 is no matches found
-    atomic_init(&set->global_index_counter, 0); // -1 is unfinished, 0 is no matches found
-    atomic_init(&set->write, 0); // -1 is unfinished, 0 is no matches found
-    atomic_init(&set->read, set->unfinished_queue); // -1 is unfinished, 0 is no matches found
-    set->prepared = NULL;
+    atomic_init(&set->global_index_counter, 0);
+    atomic_init(&set->write, 0);
+    atomic_init(&set->read, set->unfinished_queue);
+    atomic_store(&lol, 0LL);
 
     set->string_info = prepare_needle(query);
     char* query_spaceless = replace(query, " ", "");
@@ -63,7 +62,6 @@ ResultContainer* hashset_create_handle(HashSet* hashset) {
     container->merges = 0;
 
     container->read = &hashset->read;
-    container->unfinished_queue = hashset->unfinished_queue;
 
     return container;
 }
@@ -85,7 +83,7 @@ static inline void ensure_target_largest(ResultContainer** target, ResultContain
     *source = temp;
 }
 
-static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* restrict target, ResultContainer* restrict source, int duplicates) {
+static void merge_workers(ResultSheet** sheet_pool, ResultContainer* target, ResultContainer* source, int duplicates) {
     size_t total_size = target->size + source->size - duplicates;
 
     if (total_size > target->items_capacity) {
@@ -104,9 +102,6 @@ static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* re
         target->items = new_items;
         target->items_capacity = new_capacity;
     }
-
-    uint64_t* restrict target_items = target->items;
-    uint64_t* restrict source_items = source->items;
 
     size_t result_index = total_size - 1;
     size_t target_index = target->size - 1;
@@ -133,7 +128,7 @@ static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* re
     // in the items being merged, we pick the loops that don't need to check.
 
     while (duplicates && source_index < source->size && target_index < target->size) {
-        uint64_t t_packed = target_items[target_index];
+        uint64_t t_packed = target->items[target_index];
 
         if (is_duplicate(sheet_pool, t_packed)) {
             target_index--;
@@ -141,7 +136,7 @@ static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* re
             continue;
         }
 
-        uint64_t s_packed = source_items[source_index];
+        uint64_t s_packed = source->items[source_index];
         if (is_duplicate(sheet_pool, s_packed)) {
             source_index--;
             duplicates--;
@@ -149,30 +144,30 @@ static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* re
         }
 
         if (t_packed > s_packed) {
-            target_items[result_index--] = s_packed;
+            target->items[result_index--] = s_packed;
             source_index--;
         } else {
-            target_items[result_index--] = t_packed;
+            target->items[result_index--] = t_packed;
             target_index--;
         }
     }
 
     while (source_index < source->size && target_index < target->size) {
-        uint64_t t_packed = target_items[target_index];
-        uint64_t s_packed = source_items[source_index];
+        uint64_t t_packed = target->items[target_index];
+        uint64_t s_packed = source->items[source_index];
         if (t_packed > s_packed) {
-            target_items[result_index--] = s_packed;
+            target->items[result_index--] = s_packed;
             source_index--;
         } else {
-            target_items[result_index--] = t_packed;
+            target->items[result_index--] = t_packed;
             target_index--;
         }
     }
 
     while (duplicates && source_index < source->size) {
-        uint64_t s_packed = source_items[source_index];
+        uint64_t s_packed = source->items[source_index];
         if (!is_duplicate(sheet_pool, s_packed)) {
-            target_items[result_index--] = s_packed;
+            target->items[result_index--] = s_packed;
         } else {
             duplicates--;
         }
@@ -180,208 +175,226 @@ static void merge_workers(ResultSheet** restrict sheet_pool, ResultContainer* re
     }
 
     while (source_index < source->size) {
-        target_items[result_index--] = source_items[source_index--];
+        target->items[result_index--] = source->items[source_index--];
     }
 
     target->size = total_size;
     target->merges++;
 }
 
-static inline int merge_and_detect_duplicates(ResultSheet** restrict sheet_pool, MatchNode** restrict target_slot, MatchNode* restrict source_list) {
+static int merge_and_detect_duplicates(ResultContainer* container,
+                                               uint32_t* target_slot,
+                                               uint32_t source_head) {
     int duplicates = 0;
-    MatchNode** indirect = target_slot;
-    MatchNode* t_current = *target_slot;
-    MatchNode* s_current = source_list;
+    uint32_t* indirect = target_slot;
+    uint32_t t_current = *target_slot;
+    uint32_t s_current = source_head;
 
-    while (t_current && s_current) {
-        uint64_t t_id = EXTRACT_IDENTITY(t_current->multipack);
-        uint64_t s_id = EXTRACT_IDENTITY(s_current->multipack);
+    while (t_current != UINT32_MAX && s_current != UINT32_MAX) {
+        MatchNode* t_node = &container->all_nodes[t_current];
+        MatchNode* s_node = &container->all_nodes[s_current];
 
-        if (t_id == s_id) {
-            int16_t t_relevancy = EXTRACT_RELEVANCY(t_current->multipack);
-            int16_t s_relevancy = EXTRACT_RELEVANCY(s_current->multipack);
+        uint64_t t_multipack = t_node->multipack;
+        uint64_t s_multipack = s_node->multipack;
 
-            if (t_relevancy > s_relevancy) {
-                mark_duplicate(sheet_pool, s_current->multipack);
+        if (IDENTITY(t_multipack) == IDENTITY(s_multipack)) {
+            if (RELEVANCY(t_multipack) > RELEVANCY(s_multipack)) {
+                mark_duplicate(container->sheet_pool, s_multipack);
                 *indirect = t_current;
-                indirect = &t_current->next;
+                indirect = &t_node->next;
             } else {
-                mark_duplicate(sheet_pool, t_current->multipack);
+                mark_duplicate(container->sheet_pool, t_multipack);
                 *indirect = s_current;
-                indirect = &s_current->next;
+                indirect = &s_node->next;
             }
             duplicates++;
 
-            t_current = t_current->next;
-            s_current = s_current->next;
-        } else if (t_id < s_id) {
+            t_current = t_node->next;
+            s_current = s_node->next;
+        } else if (IDENTITY(t_multipack) < IDENTITY(s_multipack)) {
             *indirect = t_current;
-            indirect = &t_current->next;
-            t_current = t_current->next;
+            indirect = &t_node->next;
+            t_current = t_node->next;
         } else {
             *indirect = s_current;
-            indirect = &s_current->next;
-            s_current = s_current->next;
+            indirect = &s_node->next;
+            s_current = s_node->next;
         }
     }
 
-    while (t_current) {
+    while (t_current != UINT32_MAX) {
+        MatchNode* t_node = &container->all_nodes[t_current];
         *indirect = t_current;
-        indirect = &t_current->next;
-        t_current = t_current->next;
+        indirect = &t_node->next;
+        t_current = t_node->next;
     }
 
-    while (s_current) {
+    while (s_current != UINT32_MAX) {
+        MatchNode* s_node = &container->all_nodes[s_current];
         *indirect = s_current;
-        indirect = &s_current->next;
-        s_current = s_current->next;
+        indirect = &s_node->next;
+        s_current = s_node->next;
     }
 
-    *indirect = NULL;
+    *indirect = UINT32_MAX;
     return duplicates;
 }
 
-static int bitmap_item_insert(ResultSheet** restrict sheet_pool, uint64_t packed, uint64_t* restrict bitmap, MatchNode** restrict slots, MatchNode* restrict node) {
-    uint64_t item_id = EXTRACT_IDENTITY(packed);
+static int bitmap_item_insert(ResultContainer* target, uint64_t packed, uint32_t node_index) {
+    uint64_t item_id = IDENTITY(packed);
     if (!item_id) return 0; // item is unique
 
-    uint32_t bit_pos = item_id & 0x3FFF;
-    bitmap[bit_pos / 64] |= (1ULL << (bit_pos % 64));
+    uint32_t bit_pos = item_id & ((1ULL << LOG2_BITMAP_BITS) -1);
+    target->bitmap[bit_pos >> 6] |= (1ULL << (bit_pos & 63));
 
-    node->multipack = packed;
-    MatchNode** indirect = &slots[bit_pos];
+    target->all_nodes[node_index].multipack = packed;
+    target->all_nodes[node_index].next = UINT32_MAX;
 
-    while (*indirect) {
-        uint64_t existing_id = EXTRACT_IDENTITY((*indirect)->multipack);
-        if (existing_id == item_id) {
-            int16_t new_relevancy = EXTRACT_RELEVANCY(packed);
-            int16_t existing_relevancy = EXTRACT_RELEVANCY((*indirect)->multipack);
+    uint32_t* slot = &target->slots[bit_pos];
+    uint32_t* indirect = slot;
+    uint32_t current = *slot;
 
-            if (new_relevancy > existing_relevancy) {
-                mark_duplicate(sheet_pool, (*indirect)->multipack);
-                node->next = (*indirect)->next;
-                *indirect = node;
+    while (current != UINT32_MAX) {
+        MatchNode* current_node = &target->all_nodes[current];
+        uint64_t candidate = current_node->multipack;
+
+        if (IDENTITY(candidate) == item_id) {
+            if (RELEVANCY(packed) > RELEVANCY(candidate)) {
+                mark_duplicate(target->sheet_pool, candidate);
+                target->all_nodes[node_index].next = current_node->next;
+                *indirect = node_index;
             } else {
-                mark_duplicate(sheet_pool, packed);
+                mark_duplicate(target->sheet_pool, packed);
             }
             return 1;
         }
-        if (existing_id > item_id) break;
-        indirect = &(*indirect)->next;
+
+        if (IDENTITY(candidate) > item_id) break;
+        indirect = &current_node->next;
+        current = current_node->next;
     }
 
-    node->next = *indirect;
-    *indirect = node;
+    target->all_nodes[node_index].next = current;
+    *indirect = node_index;
     return 0;
 }
 
-static inline int insert_bitmap_items(ResultSheet** restrict sheet_pool, ResultContainer* restrict target, ResultContainer* restrict source) {
-    if (target->owned_count + 1 > target->owned_capacity) {
-        target->owned_capacity = (target->owned_count + 1) * 2;
-        target->owned_blocks = realloc(target->owned_blocks,
-                                       target->owned_capacity * sizeof(MatchNode*));
+static int insert_bitmap_items(ResultContainer* target, ResultContainer* source) {
+    size_t needed = target->nodes_count + source->size;
+
+    if (needed > target->nodes_capacity) {
+        size_t new_capacity = needed * 3 / 2;
+        if (new_capacity < 16) new_capacity = 16;
+
+        MatchNode* new_nodes = realloc(target->all_nodes, new_capacity * sizeof(MatchNode));
+        if (!new_nodes) return -1;
+
+        target->all_nodes = new_nodes;
+        target->nodes_capacity = new_capacity;
     }
 
     int duplicates = 0;
-
-    uint64_t* restrict bitmap = target->bitmap;
-    MatchNode** restrict slots = target->slots;
-    uint64_t* restrict source_items = source->items;
-    MatchNode* all_nodes = malloc(source->size * sizeof(MatchNode));
-
-    target->owned_blocks[target->owned_count++] = all_nodes;
+    size_t base_index = target->nodes_count;
 
     for (size_t i = 0; i < source->size; i++) {
-        duplicates += bitmap_item_insert(sheet_pool, source_items[i], bitmap, slots, all_nodes++);
+        duplicates += bitmap_item_insert(target, source->items[i], base_index + i);
     }
+
+    target->nodes_count += source->size;
     return duplicates;
 }
 
-static inline void steal_bitmap(ResultContainer* target, ResultContainer* source) {
+static void steal_bitmap(ResultContainer* target, ResultContainer* source) {
     target->bitmap = source->bitmap;
     target->slots = source->slots;
-    target->owned_blocks = source->owned_blocks;
-    target->owned_count = source->owned_count;
-    target->owned_capacity = source->owned_capacity;
+    target->all_nodes = source->all_nodes;
+    target->nodes_count = source->nodes_count;
+    target->nodes_capacity = source->nodes_capacity;
 
     source->bitmap = NULL;
     source->slots = NULL;
-    source->owned_blocks = NULL;
-    source->owned_count = 0;
-    source->owned_capacity = 0;
+    source->all_nodes = NULL;
+    source->nodes_count = 0;
+    source->nodes_capacity = 0;
 }
 
-static int bitmap_merge_with_collision_detection(ResultSheet** restrict sheet_pool, ResultContainer* restrict target, ResultContainer* restrict source) {
+static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
+                                                ResultContainer* target,
+                                                ResultContainer* source) {
     if (!source->size || !target->size) return 0;
 
     int duplicates = 0;
 
     if (!target->bitmap && !source->bitmap) {
         target->bitmap = calloc(BITMAP_SIZE, sizeof(uint64_t));
-        target->slots = calloc(1ULL << LOG2_BITMAP_BITS, sizeof(MatchNode*));
-        target->owned_blocks = malloc(sizeof(MatchNode*));
+        target->slots = malloc((1ULL << LOG2_BITMAP_BITS) * sizeof(uint32_t));
+        memset(target->slots, 0xFF, (1ULL << LOG2_BITMAP_BITS) * sizeof(uint32_t));
 
         size_t total_size = source->size + target->size;
-        target->owned_blocks[0] = malloc(total_size * sizeof(MatchNode));
-        target->owned_capacity = 1;
-        target->owned_count = 1;
-
-        uint64_t* restrict bitmap = target->bitmap;
-        MatchNode** restrict slots = target->slots;
-        uint64_t* restrict target_items = target->items;
-        uint64_t* restrict source_items = source->items;
-        MatchNode* all_nodes = target->owned_blocks[0];
+        target->all_nodes = malloc(total_size * sizeof(MatchNode));
+        target->nodes_capacity = total_size;
+        target->nodes_count = 0;
 
         for (size_t i = 0; i < target->size; i++) {
-            duplicates += bitmap_item_insert(sheet_pool, target_items[i], bitmap, slots, all_nodes++);
+            duplicates += bitmap_item_insert(target, target->items[i], target->nodes_count++);
         }
 
         for (size_t j = 0; j < source->size; j++) {
-            duplicates += bitmap_item_insert(sheet_pool, source_items[j], bitmap, slots, all_nodes++);
+            duplicates += bitmap_item_insert(target, source->items[j], target->nodes_count++);
         }
         return duplicates;
     }
 
     if (source->bitmap && !target->bitmap) {
-        duplicates = insert_bitmap_items(sheet_pool, source, target);
+        duplicates = insert_bitmap_items(source, target);
         steal_bitmap(target, source);
         return duplicates;
     }
 
     if (!source->bitmap) {
-        return insert_bitmap_items(sheet_pool, target, source);
+        return insert_bitmap_items(target, source);
     }
 
-    uint64_t* restrict t_bitmap = target->bitmap;
-    uint64_t* restrict s_bitmap = source->bitmap;
-    MatchNode** restrict t_slots = target->slots;
-    MatchNode** restrict s_slots = source->slots;
+    // Both have bitmaps - need to merge nodes arrays first
+    size_t needed = target->nodes_count + source->nodes_count;
+    if (needed > target->nodes_capacity) {
+        size_t new_capacity = needed * 3 / 2;
+        MatchNode* new_nodes = realloc(target->all_nodes, new_capacity * sizeof(MatchNode));
+        if (!new_nodes) return -1;
+
+        target->all_nodes = new_nodes;
+        target->nodes_capacity = new_capacity;
+    }
+
+    size_t source_base = target->nodes_count;
+    for (size_t i = 0; i < source->nodes_count; i++) {
+        target->all_nodes[source_base + i] = source->all_nodes[i];
+        if (source->all_nodes[i].next != UINT32_MAX) {
+            target->all_nodes[source_base + i].next += source_base;
+        }
+    }
+    target->nodes_count += source->nodes_count;
 
     for (int word_idx = 0; word_idx < BITMAP_SIZE; word_idx++) {
-        t_bitmap[word_idx] |= s_bitmap[word_idx];
+        uint64_t word = source->bitmap[word_idx];
+        target->bitmap[word_idx] |= word;
 
-        uint64_t word = s_bitmap[word_idx];
         while (word) {
-            int bit = __builtin_ctzll(word);
-            size_t slot_idx = word_idx * 64 + bit;
+            size_t slot_idx = (word_idx << 6) + __builtin_ctzll(word);
             word &= word - 1;
 
-            duplicates += merge_and_detect_duplicates(sheet_pool, &t_slots[slot_idx], s_slots[slot_idx]);
+            uint32_t source_slot = source->slots[slot_idx];
+            if (source_slot != UINT32_MAX) {
+                source_slot += source_base;
+                duplicates += merge_and_detect_duplicates(target, &target->slots[slot_idx], source_slot);
+            }
         }
     }
 
-    if (target->owned_count + source->owned_count > target->owned_capacity) {
-        target->owned_capacity = (target->owned_count + source->owned_count) * 2;
-        target->owned_blocks = realloc(target->owned_blocks,
-                                       target->owned_capacity * sizeof(MatchNode*));
-    }
-
-    for (size_t i = 0; i < source->owned_count; i++) {
-        target->owned_blocks[target->owned_count++] = source->owned_blocks[i];
-    }
-    source->owned_blocks = NULL;
-    source->owned_count = 0;
-    source->owned_capacity = 0;
+    free(source->all_nodes);
+    source->all_nodes = NULL;
+    source->nodes_count = 0;
+    source->nodes_capacity = 0;
 
     return duplicates;
 }
@@ -391,10 +404,15 @@ static inline void return_sheet(HashSet* set, ResultContainer* container) {
     if (container->current_sheet->size == RESULTS_PER_SHEET) return;
 
     int pos = atomic_fetch_add(&set->write, 1);
-    container->unfinished_queue[pos] = container->current_sheet;
+    set->unfinished_queue[pos] = container->current_sheet;
 }
 
 void hashset_merge(HashSet* set, ResultContainer* current) {
+    if (atomic_load(&lol) == 0LL) {
+        int64_t placeholder = 0LL;
+        atomic_compare_exchange_strong(&lol, &placeholder, get_monotonic_time());
+    }
+
     return_sheet(set, current);
     if (!current->items) {
         container_destroy(current);
@@ -425,6 +443,9 @@ void hashset_prepare(HashSet* set) {
     if (!set->prepared) return;
     set->matches = calloc(set->prepared->size, sizeof(BobLauncherMatch*));
     atomic_store(&set->size, set->prepared->size);
+    int64_t delta_us = get_monotonic_time() - atomic_load(&lol);
+    double delta_ms = delta_us / 1000.0;
+    printf("Time taken: %.2f ms, results: %d\n", delta_ms, set->size);
 }
 
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {

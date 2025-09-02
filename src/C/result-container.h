@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <stdint.h>
+#include <limits.h>
 #include "match.h"
 
 #define uint128_t __uint128_t
@@ -40,10 +42,10 @@
      ((uint64_t)((sheet_index) & SHEET_MASK) << SHEET_SHIFT) | \
      ((uint64_t)((relevancy) + 1024) << RELEVANCY_SHIFT))
 
-#define EXTRACT_ITEM_IDX(packed) (((packed) >> ITEM_SHIFT) & ITEM_MASK)
-#define EXTRACT_SHEET_IDX(packed) (((packed) >> SHEET_SHIFT) & SHEET_MASK)
-#define EXTRACT_RELEVANCY(packed) ((int16_t)(((packed) >> RELEVANCY_SHIFT) & 0x7FFF) - 1024)
-#define EXTRACT_IDENTITY(packed) ((packed) & 0xFFFFFFFF) // hash part
+#define ITEM_IDX(packed) (((packed) >> ITEM_SHIFT) & ITEM_MASK)
+#define SHEET_IDX(packed) (((packed) >> SHEET_SHIFT) & SHEET_MASK)
+#define RELEVANCY(packed) ((int16_t)(((packed) >> RELEVANCY_SHIFT) & 0x7FFF) - 1024)
+#define IDENTITY(packed) ((packed) & 0xFFFFFFFF) // hash part
 
 #define PTR_ALIGN_SHIFT 4
 #define PTR_BITS 43
@@ -81,9 +83,18 @@ typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 typedef void (*GDestroyNotify)(void* data);
 
+#define PACK_NEXT_IN_SLOT_BITS(value, next_slot) \
+    (((value) & ~((1ULL << LOG2_BITMAP_BITS) - 1)) | ((next_slot) & ((1ULL << LOG2_BITMAP_BITS) - 1)))
+
+// Reconstruct original value by replacing slot bits with current slot position
+#define UNPACK_ORIGINAL_VALUE(packed_value, current_slot) \
+    (((packed_value) & ~((1ULL << LOG2_BITMAP_BITS) - 1)) | ((current_slot) & ((1ULL << LOG2_BITMAP_BITS) - 1)))
+
+#define GET_NEXT_SLOT(packed_node) ((packed_node) & ((1ULL << LOG2_BITMAP_BITS) - 1))
+
 typedef struct MatchNode {
     uint64_t multipack;
-    struct MatchNode* next;
+    uint32_t next;
 } MatchNode;
 
 typedef struct ResultSheet {
@@ -97,8 +108,7 @@ typedef struct ResultContainer {
     ResultSheet* current_sheet;
     ResultSheet** sheet_pool;
 
-    // Group 2: Queue pointers (these point to shared atomics)
-    ResultSheet** unfinished_queue;
+    // Group 2: Queue pointer
     ResultSheet*** read;
 
     // Group 3: Item data
@@ -115,14 +125,14 @@ typedef struct ResultContainer {
     // Group 5: Shared pointers
     atomic_int* global_index_counter;
     uint64_t* bitmap;
-    MatchNode** slots;
+    uint32_t* slots;
 
-    // Group 6: Memory management
-    MatchNode** owned_blocks;
-    size_t owned_count;
-    size_t owned_capacity;
+    // Group 6: Node storage
+    MatchNode* all_nodes;
+    size_t nodes_count;
+    size_t nodes_capacity;
 
-    // track merges for heuristic memory allocation
+    // Track merges for heuristic memory allocation
     int merges;
 } ResultContainer;
 
