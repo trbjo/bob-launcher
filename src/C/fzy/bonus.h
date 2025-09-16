@@ -1,5 +1,4 @@
-#ifndef BONUS_H
-#define BONUS_H BONUS_H
+#pragma once
 
 #include "config.h"
 
@@ -92,7 +91,7 @@ const score_t bonus_states[3][256] = {
 	}
 };
 
-const size_t bonus_index[256] = {
+const int8_t bonus_index[256] = {
 	/* ['A' ... 'Z'] = 2 */
 	ASSIGN_UPPER(2),
 
@@ -103,6 +102,4 @@ const size_t bonus_index[256] = {
 	ASSIGN_DIGIT(1)
 };
 
-#define COMPUTE_BONUS(last_ch, ch) (bonus_states[bonus_index[(unsigned char)(ch)]][(unsigned char)(last_ch)])
-
-#endif
+#define COMPUTE_BONUS(last_ch, ch) (bonus_states[bonus_index[ch]][last_ch])

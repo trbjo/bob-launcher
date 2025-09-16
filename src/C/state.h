@@ -1,12 +1,12 @@
-#ifndef bob_launcher_STATE_H
-#define bob_launcher_STATE_H
+#pragma once
 
 #include <stdbool.h>
 #include "hashset.h"
 #include "bob-launcher.h"
 
-/* Enums */
 typedef enum {
+    CURRENT_CATEGORY = -999,
+    bob_launcher_SEARCHING_FOR_CURRENT = -999,
     bob_launcher_SEARCHING_FOR_RESET = -1,
     bob_launcher_SEARCHING_FOR_PLUGINS = 0,
     bob_launcher_SEARCHING_FOR_SOURCES = 1,
@@ -15,7 +15,6 @@ typedef enum {
     bob_launcher_SEARCHING_FOR_COUNT = 4
 } BobLauncherSearchingFor;
 
-/* String Builder structure */
 typedef struct {
     char* str;
     size_t len;
@@ -69,5 +68,3 @@ void state_delete_char_forward();
 void state_delete_word();
 int state_find_next_word(bool right);
 void state_cleanup();
-
-#endif /* bob_launcher_STATE_H */

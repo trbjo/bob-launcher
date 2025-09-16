@@ -9,19 +9,11 @@
 #include <string.h>
 #include "hashset.h"
 
-_Atomic int64_t lol = 0LL;
-
-static int64_t get_monotonic_time() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000 + (int64_t)ts.tv_nsec / 1000;
-}
-
 static inline bool is_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
     return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)] & DUPLICATE_FLAG;
 }
 
-static inline uint128_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
+static inline uint64_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
     return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)];
 }
 
@@ -39,17 +31,16 @@ HashSet* hashset_create(const char* query, int event_id) {
     atomic_init(&set->global_index_counter, 0);
     atomic_init(&set->write, 0);
     atomic_init(&set->read, set->unfinished_queue);
-    atomic_store(&lol, 0LL);
 
-    set->string_info = prepare_needle(query);
-    char* query_spaceless = replace(query, " ", "");
+    set->string_info = prepare_needle(set->query);
+    char* query_spaceless = replace(set->query, " ", "");
     set->string_info_spaceless = prepare_needle(query_spaceless);
     free(query_spaceless);
 
     return set;
 }
 
-ResultContainer* hashset_create_handle(HashSet* hashset) {
+ResultContainer* hashset_create_handle(HashSet* hashset, int16_t bonus) {
     ResultContainer* container = calloc(1, sizeof(ResultContainer));
     if (!container) return NULL;
 
@@ -60,6 +51,7 @@ ResultContainer* hashset_create_handle(HashSet* hashset) {
     container->sheet_pool = hashset->sheet_pool;
     container->global_index_counter = &hashset->global_index_counter;
     container->merges = 0;
+    container->bonus = bonus;
 
     container->read = &hashset->read;
 
@@ -69,6 +61,17 @@ ResultContainer* hashset_create_handle(HashSet* hashset) {
 static int compare(const void* a, const void* b) {
     uint64_t packed_a = *(uint64_t*)a;
     uint64_t packed_b = *(uint64_t*)b;
+
+    if (packed_b > packed_a) return 1;
+    if (packed_a > packed_b) return -1;
+    return 0;
+}
+
+static int compare_strip_hash(const void* a, const void* b) {
+    // by stripping the hash we force the insertion order to become the tiebreaker
+    uint64_t mask = ~(0xFFFFFFFFULL << 17);
+    uint64_t packed_a = *(uint64_t*)a & mask;
+    uint64_t packed_b = *(uint64_t*)b & mask;
 
     if (packed_b > packed_a) return 1;
     if (packed_a > packed_b) return -1;
@@ -400,26 +403,21 @@ static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
 }
 
 static inline void return_sheet(HashSet* set, ResultContainer* container) {
-    if (!container->current_sheet) return;
     if (container->current_sheet->size == RESULTS_PER_SHEET) return;
 
     int pos = atomic_fetch_add(&set->write, 1);
     set->unfinished_queue[pos] = container->current_sheet;
 }
 
-void hashset_merge(HashSet* set, ResultContainer* current) {
-    if (atomic_load(&lol) == 0LL) {
-        int64_t placeholder = 0LL;
-        atomic_compare_exchange_strong(&lol, &placeholder, get_monotonic_time());
-    }
-
-    return_sheet(set, current);
+static ALWAYS_INLINE void _hashset_merge_common(HashSet* set, ResultContainer* current,
+                                         int (*cmp)(const void*, const void*)) {
     if (!current->items) {
         container_destroy(current);
         return;
     }
+    return_sheet(set, current);
 
-    qsort(current->items, current->size, sizeof(uint64_t), compare);
+    qsort(current->items, current->size, sizeof(uint64_t), cmp);
 
     // We will loop here until we can't grab a container.
     // "Prepared" is a slot that all workers insert their finished container into
@@ -439,29 +437,46 @@ void hashset_merge(HashSet* set, ResultContainer* current) {
     }
 }
 
+void hashset_merge_prefer_hash(HashSet* set, ResultContainer* current) {
+    _hashset_merge_common(set, current, compare);
+}
+
+void hashset_merge_prefer_insertion(HashSet* set, ResultContainer* current) {
+    _hashset_merge_common(set, current, compare_strip_hash);
+}
+
 void hashset_prepare(HashSet* set) {
     if (!set->prepared) return;
     set->matches = calloc(set->prepared->size, sizeof(BobLauncherMatch*));
     atomic_store(&set->size, set->prepared->size);
-    int64_t delta_us = get_monotonic_time() - atomic_load(&lol);
-    double delta_ms = delta_us / 1000.0;
-    printf("Time taken: %.2f ms, results: %d\n", delta_ms, set->size);
 }
 
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {
-    if (index >= atomic_load(&set->size)) {
-        return NULL;
-    }
+    while (1) {
+        int size = atomic_load(&set->size);
+        if (index >= size) return NULL;
 
-    if (set->matches[index] == NULL) {
+        if (set->matches[index] != NULL) {
+            return set->matches[index];
+        }
+
         uint64_t packed = set->prepared->items[index];
-        uint128_t match_data = get_match_item_value(set->sheet_pool, packed);
-        MatchFactory factory = get_factory(match_data);
-        void* user_data = get_factory_user_data(match_data);
-        set->matches[index] = factory(user_data);
-    }
+        uint64_t match_data = get_match_item_value(set->sheet_pool, packed);
+        MatchFactory factory = GET_MATCH_FACTORY(match_data);
+        void* user_data = GET_FACTORY_USER_DATA(match_data);
 
-    return set->matches[index];
+        if (!user_data) {
+            // item became invalid
+            memmove(&set->prepared->items[index],
+                   &set->prepared->items[index + 1],
+                   (size - index - 1) * sizeof(uint64_t));
+
+            atomic_fetch_sub(&set->size, 1);
+        } else {
+            set->matches[index] = factory(user_data);
+            return set->matches[index];
+        }
+    }
 }
 
 void hashset_destroy(HashSet* set) {
@@ -473,10 +488,10 @@ void hashset_destroy(HashSet* set) {
         ResultSheet* sheet = set->sheet_pool[i];
         if (sheet) {
             for (int j = 0; j < sheet->size; j++) {
-                uint128_t item = sheet->match_pool[j];
-                GDestroyNotify destroy = get_factory_destroy(item);
+                uint64_t item = sheet->match_pool[j];
+                GDestroyNotify destroy = GET_FACTORY_DESTROY(item);
                 if (destroy) {
-                    destroy(get_factory_user_data(item));
+                    destroy(GET_FACTORY_USER_DATA(item));
                 }
             }
             free(sheet);

@@ -7,17 +7,19 @@
 
 typedef int BobLauncherSearchingFor;
 
-extern GPtrArray* plugin_loader_search_providers;
+extern GPtrArray* plugin_loader_default_search_providers;
 extern int* state_selected_indices;
 extern HashSet** state_providers;
 
-extern int events_ok(unsigned int event_id);
+extern int events_ok(int event_id);
 extern int thread_pool_num_cores(void);
 extern int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, int selected_index);
 extern void state_update_layout(BobLauncherSearchingFor what);
 
 #define SEARCHING_FOR_SOURCES 1
 #define CACHE_ALIGNED __attribute__((aligned(CACHE_LINE_SIZE)))
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+
 #define CACHE_LINE_SIZE 64
 
 typedef struct {
@@ -25,6 +27,7 @@ typedef struct {
 
     BobLauncherSearchBase* plugin;
     unsigned int shard;
+    int16_t bonus;
 
     HashSet* hashset;
 } CACHE_ALIGNED WorkerData;
@@ -70,26 +73,37 @@ static void worker_finalize(void* user_data) {
     free(worker_data);
 }
 
-static void search_worker_thread(void* user_data) {
+static ALWAYS_INLINE ResultContainer* _search_worker_thread(void* user_data) {
     WorkerData* worker_data = (WorkerData*)user_data;
     HashSet* set = worker_data->hashset;
 
-    if (!events_ok(set->event_id)) return;
-    ResultContainer* rc = hashset_create_handle(set);
+    if (!events_ok(set->event_id)) return NULL;
+    ResultContainer* rc = hashset_create_handle(set, worker_data->bonus);
 
     bob_launcher_search_base_search_shard(worker_data->plugin,
                                           rc,
                                           worker_data->shard);
 
-    if (events_ok(set->event_id)) {
-        hashset_merge(set, rc);
-    } else {
+    if (!events_ok(set->event_id)) {
         container_destroy(rc);
+        return NULL;
     }
+
+    return rc;
 }
 
-static inline void search_plugin(BobLauncherSearchBase* sp, HashSet* hashset, atomic_int* refs, void* finalize_func) {
+static void search_prefer_insertion(void* user_data) {
+    ResultContainer* rc = _search_worker_thread(user_data);
+    if (rc != NULL) hashset_merge_prefer_insertion(((WorkerData*)user_data)->hashset, rc);
+}
+static void search_prefer_hash(void* user_data) {
+    ResultContainer* rc = _search_worker_thread(user_data);
+    if (rc != NULL) hashset_merge_prefer_hash(((WorkerData*)user_data)->hashset, rc);
+}
+
+static inline void search_plugin(BobLauncherSearchBase* sp, HashSet* hashset, atomic_int* refs, void* search_func, void* finalize_func) {
     size_t shard_count = bob_launcher_search_base_get_shard_count(sp);
+    int16_t bonus = bob_launcher_plugin_base_get_bonus ((BobLauncherPluginBase*) sp);
 
     atomic_fetch_add(refs, shard_count);
 
@@ -105,9 +119,10 @@ static inline void search_plugin(BobLauncherSearchBase* sp, HashSet* hashset, at
         worker_data->hashset = hashset;
         worker_data->shard = shard;
         worker_data->plugin = sp;
+        worker_data->bonus = bonus;
         worker_data->refs = refs;
 
-        thread_pool_run(search_worker_thread, worker_data, finalize_func);
+        thread_pool_run(search_func, worker_data, finalize_func);
     }
 }
 
@@ -120,15 +135,16 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
     void* finalize_func = reset_index ? worker_finalize_reset : worker_finalize;
 
     if (selected_plg) {
-        search_plugin(selected_plg, hashset, refs, finalize_func);
+        void* search_func = bob_launcher_search_base_get_prefer_insertion_order(selected_plg) ?
+            search_prefer_insertion :
+            search_prefer_hash;
+        search_plugin(selected_plg, hashset, refs, search_func, finalize_func);
     } else {
-        for (size_t i = 0; i < plugin_loader_search_providers->len; i++) {
-            BobLauncherSearchBase* sp = (BobLauncherSearchBase*)plugin_loader_search_providers->pdata[i];
+        for (size_t i = 0; i < plugin_loader_default_search_providers->len; i++) {
+            BobLauncherSearchBase* sp = plugin_loader_default_search_providers->pdata[i];
 
-            if (bob_launcher_plugin_base_is_enabled((BobLauncherPluginBase*)sp) &&
-                bob_launcher_search_base_get_enabled_in_default_search(sp) &&
-                g_regex_match(bob_launcher_search_base_get_compiled_regex(sp), query, 0, NULL )) {
-                search_plugin(sp, hashset, refs, finalize_func);
+            if (g_regex_match(bob_launcher_search_base_get_compiled_regex(sp), query, 0, NULL )) {
+                search_plugin(sp, hashset, refs, search_prefer_hash, finalize_func);
             }
         }
     }

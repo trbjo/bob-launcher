@@ -1,5 +1,6 @@
 namespace BobLauncher {
     public abstract class SearchBase : PluginBase {
+        public virtual bool prefer_insertion_order { get { return false; } }
         public virtual uint shard_count { get; set; default = 1; }
         public uint update_interval { get; set; }
         public bool enabled_in_default_search { get; set; }
@@ -35,7 +36,7 @@ namespace BobLauncher {
                 this.regex_match = settings.get_string("regex-match");
                 return true;
             case "bonus":
-                this.bonus = (int16)settings.get_int("bonus");
+                base.bonus = (int16)settings.get_int("bonus");
                 return true;
             case "enabled-in-default":
                 this.enabled_in_default_search = settings.get_boolean("enabled-in-default");
@@ -60,14 +61,4 @@ namespace BobLauncher {
             search(rs);
         }
     }
-
-    public abstract class SearchAction : SearchBase {
-        protected override bool handle_base_settings(GLib.Settings settings, string key) {
-            if (base.handle_base_settings(settings, key)) {
-                return true;
-            }
-            return false;
-        }
-    }
-
 }

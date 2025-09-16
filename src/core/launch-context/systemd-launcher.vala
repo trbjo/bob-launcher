@@ -13,16 +13,15 @@ namespace BobLauncher {
         public string systemd_slice { get; set; default = ""; }
         public string terminal_emulator { get; set; default = ""; }
         private GLib.Settings settings;
-        private DBusConnection connection;
+        public DBusConnection connection { get; construct; }
         private DBusScope.Monitor scope_monitor;
         private HashTable<string, string> dbus_name_to_object_path;
-        private Spinlock.AtomicInt* lock;
+        private Spinlock.AtomicInt* token;
 
         construct {
-            lock = Spinlock.new();
+            token = Spinlock.new();
             dbus_name_to_object_path = new HashTable<string, string>(str_hash, str_equal);
 
-            connection = Bus.get_sync(BusType.SESSION);
             int ret = SystemdScope.get_caller_systemd_slice(out own_slice);
             if (ret != 0) {
                 error("Failed to get slice: %s", strerror(-ret));
@@ -36,13 +35,13 @@ namespace BobLauncher {
         }
 
         public void on_dbus_event(DBusScope.EventType event_type, string dbus_name, string? object_path) {
-            Spinlock.spin_lock(lock);
+            Spinlock.spin_lock(token);
             if (event_type == DBusScope.EventType.CONNECTED) {
                 dbus_name_to_object_path.set(dbus_name, object_path);
             } else if (event_type == DBusScope.EventType.DISCONNECTED) {
                 dbus_name_to_object_path.remove(dbus_name);
             }
-            Spinlock.spin_unlock(lock);
+            Spinlock.spin_unlock(token);
         }
 
         public bool launch_files(List<File> files, string[]? env = null) {
@@ -108,26 +107,89 @@ namespace BobLauncher {
             return true;
         }
 
+
         public bool launch_uris(List<string> uris, string[]? env = null) {
             if (uris == null || uris.length() == 0) {
                 return false;
             }
 
-            var uri = uris.nth_data(0);
+            var app_infos = new GLib.HashTable<string, HashTable<AppInfo, GenericArray<string>>>(str_hash, str_equal);
 
-            try {
-                string? scheme = Uri.parse_scheme(uri);
-                if (scheme != null) {
-                    var app_info = AppInfo.get_default_for_uri_scheme(scheme);
-                    if (app_info == null) {
-                        throw new DBusError.FAILED("could not find handler for uri: %s", uri);
+            foreach (string uri in uris) {
+                try {
+                    string? scheme = Uri.parse_scheme(uri);
+                    if (scheme == null) {
+                        warning("unable to parse scheme for %s", uri);
+                        continue;
                     }
-                    return launch_with_uris(app_info, uris, null, env);
+
+                    if (scheme == "file") {
+                        var file = File.new_for_uri(uri);
+
+                        var info = file.query_info(LAUNCH_FILE_ATTRIBUTES, FileQueryInfoFlags.NONE);
+                        AppInfo? app_info = AppInfo.get_default_for_type(info.get_content_type(), false) ??
+                                        AppInfo.get_default_for_type("text/plain", false); // treat unknowns as text
+                        // if we don't even have a handler for "text/plain" warn and exit
+                        if (app_info == null) {
+                            warning("no handlers detected for %s, cannot open", uri);
+                            continue;
+                        }
+
+                        string name = app_info.get_name();
+                        var inner = app_infos.get(name);
+                        if (inner == null) {
+                            inner = new HashTable<AppInfo, GenericArray<string>>(direct_hash, direct_equal);
+                            var array = new GenericArray<string>();
+                            array.add(uri);
+                            inner.set(app_info, array);
+                            app_infos.set(name, inner);
+                        } else {
+                            if (inner.size() != 1) error ("size must be 1");
+                            inner.foreach((app_info, array) => {
+                                array.add(uri);
+                            });
+                        }
+
+                    } else {
+                        var app_info = AppInfo.get_default_for_uri_scheme(scheme);
+                        if (app_info == null) {
+                            warning("no handlers detected for %s, cannot open", uri);
+                        }
+
+                        string name = app_info.get_name();
+                        var inner = app_infos.get(name);
+                        if (inner == null) {
+                            inner = new HashTable<AppInfo, GenericArray<string>>(direct_hash, direct_equal);
+                            var array = new GenericArray<string>();
+                            array.add(uri);
+                            inner.set(app_info, array);
+                            app_infos.set(name, inner);
+                        } else {
+                            if (inner.size() != 1) error ("size must be 1");
+                            inner.foreach((app_info, array) => {
+                                array.add(uri);
+                            });
+                        }
+
+                        return launch_with_uris(app_info, uris, null, env);
+                    }
+
+
+                } catch (Error e) {
+                    warning("Could not query file info: %s", e.message);
                 }
-            } catch (Error e) {
-                warning("Could not launch URI: %s", e.message);
             }
-            return false;
+
+            app_infos.foreach((name, inner) => {
+                if (inner.size() != 1) error ("size must be 1");
+                inner.foreach((app_info, array) => {
+                    var uri_list = new GLib.List<string>();
+                    array.foreach((elem) => uri_list.append(elem));
+                    launch_with_uris_internal(app_info, uri_list, null, env);
+                });
+            });
+
+            return true;
         }
 
         public bool launch_with_files(AppInfo app_info, List<File>? files = null, string? action = null, string[]? env = null) {
@@ -200,14 +262,14 @@ namespace BobLauncher {
             }
             string app_id = desktop_app_id.substring(0, desktop_app_id.length - 8);
 
-            Spinlock.spin_lock(lock);
+            Spinlock.spin_lock(token);
 
             string? object_path = dbus_name_to_object_path.get(app_id);
             if (object_path == null || argv.length > 1) {
-                Spinlock.spin_unlock(lock);
+                Spinlock.spin_unlock(token);
                 return launch_with_systemd_scope_internal(app_id, argv, env, blocking);
             }
-            Spinlock.spin_unlock(lock);
+            Spinlock.spin_unlock(token);
 
             bool success = try_activate(app_info, app_id, object_path, null);
             return  success ? 0 : -1;
@@ -513,18 +575,12 @@ namespace BobLauncher {
                                 // File placeholders - convert URI to file path
                                 if (uris != null) {
                                     foreach (var uri in uris) {
-                                        try {
-                                            // Convert URI to file path
-                                            var file = File.new_for_uri(uri);
-                                            var path = file.get_path();
-                                            if (path != null) {
-                                                argv.add(path);
-                                            } else {
-                                                // Fallback if get_path() returns null (e.g., for remote URIs)
-                                                argv.add(uri);
-                                            }
-                                        } catch (Error e) {
-                                            // If conversion fails, fall back to the URI
+                                        var file = File.new_for_uri(uri);
+                                        var path = file.get_path();
+                                        if (path != null) {
+                                            argv.add(path);
+                                        } else {
+                                            // Fallback if get_path() returns null (e.g., for remote URIs)
                                             argv.add(uri);
                                         }
                                     }

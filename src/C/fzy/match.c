@@ -11,31 +11,103 @@
 #include "config.h"
 
 static inline uint32_t utf8_to_codepoint(const char* str, int* advance) {
-	uint8_t first = (uint8_t)str[0];
-	if (first < 0x80) {
-		*advance = 1;
-		return first; // ASCII fast path
-	}
+    const uint8_t* s = (const uint8_t*)str;
+    uint8_t first = s[0];
 
-	// 2-byte sequence: 110xxxxx 10xxxxxx
-	if (first >= 0xC0 && first < 0xE0) {
-		*advance = 2;
-		return ((first & 0x1F) << 6) | (str[1] & 0x3F);
-	}
-	// 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
-	else if (first < 0xF0) {
-		*advance = 3;
-		return ((first & 0x0F) << 12) | ((str[1] & 0x3F) << 6) | (str[2] & 0x3F);
-	}
-	// 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-	else if (first < 0xF8) {
-		*advance = 4;
-		return ((first & 0x07) << 18) | ((str[1] & 0x3F) << 12) |
-			   ((str[2] & 0x3F) << 6) | (str[3] & 0x3F);
-	}
+    // ASCII fast path - handles ~90% of typical text
+    if (first < 0x80) {
+        *advance = 1;
+        return first;
+    }
 
-	*advance = 1;
-	return 0; // Invalid UTF-8
+    // Lookup table for UTF-8 sequence lengths
+    static const uint8_t utf8_len_table[256] = {
+        // 0x00-0x7F: 1 byte (ASCII) - 128 elements
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        // 0x80-0xBF: continuation bytes (invalid as first byte) - 64 elements
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        // 0xC0-0xC1: invalid (overlong encoding) - 2 elements
+        0,0,
+        // 0xC2-0xDF: 2-byte sequences - 30 elements
+        2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+        // 0xE0-0xEF: 3-byte sequences - 16 elements
+        3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+        // 0xF0-0xF4: 4-byte sequences - 5 elements
+        4,4,4,4,4,
+        // 0xF5-0xFF: invalid - 11 elements
+        0,0,0,0,0,0,0,0,0,0,0
+    };
+
+    int len = utf8_len_table[first];
+    *advance = len;
+
+    switch (len) {
+        case 0: {
+	        *advance = 1;
+	        return 0xFFFD;
+	    }
+        case 2: {
+            uint8_t second = s[1];
+            if ((second & 0xC0) != 0x80) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+
+            uint32_t codepoint = ((first & 0x1F) << 6) | (second & 0x3F);
+
+            if (codepoint < 0x80) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+            return codepoint;
+        }
+
+        case 3: {
+            uint8_t second = s[1];
+            uint8_t third = s[2];
+
+            if (((second & 0xC0) != 0x80) || ((third & 0xC0) != 0x80)) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+
+            uint32_t codepoint = ((first & 0x0F) << 12) | ((second & 0x3F) << 6) | (third & 0x3F);
+
+            if (codepoint < 0x800 || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+            return codepoint;
+        }
+
+        case 4: {
+            uint8_t second = s[1];
+            uint8_t third = s[2];
+            uint8_t fourth = s[3];
+
+            if (((second & 0xC0) != 0x80) || ((third & 0xC0) != 0x80) || ((fourth & 0xC0) != 0x80)) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+
+            uint32_t codepoint = ((first & 0x07) << 18) | ((second & 0x3F) << 12) |
+                       ((third & 0x3F) << 6) | (fourth & 0x3F);
+
+            if (codepoint < 0x10000 || codepoint > 0x10FFFF) {
+                *advance = 1;
+                return 0xFFFD;
+            }
+            return codepoint;
+        }
+
+        default:
+            *advance = 1;
+            return 0xFFFD;
+    }
 }
 
 static int setup_haystack_and_match(const needle_info* needle, haystack_info* hay, const char* haystack_str) {
@@ -68,77 +140,66 @@ int query_has_match(const needle_info* needle, const char* haystack) {
 }
 
 static inline void precompute_bonus(haystack_info *haystack) {
-	uint32_t last_ch = '/';  // Starting value
-	const int n = haystack->len;
-	for (int i = 0; i < n; i++) {
-		uint32_t current_ch = haystack->chars[i];
+	unsigned char last_ch = '/';  // Starting value
+	for (int i = 0; i < haystack->len; i++) {
+		unsigned char current_ch = (unsigned char)haystack->chars[i];
 		haystack->bonus[i] = COMPUTE_BONUS(last_ch, current_ch);
 		last_ch = current_ch;
 	}
 }
 
-score_t match_score_with_offset(const needle_info *needle, const char *haystack_str, unsigned int offset) {
-	return match_score(needle, haystack_str + offset);
-}
+static inline void match_row(const needle_info *needle,
+								const haystack_info *haystack,
+								const int row,
+								score_t* curr_D,
+								score_t* curr_M,
+								const score_t* last_D,
+								const score_t* last_M) {
 
-static inline void match_first_row(const needle_info *needle,
-								   const haystack_info *haystack,
-								   score_t *curr_D,
-								   score_t *curr_M) {
-	const int n = haystack->len;
+	int n = needle->len;
+	int m = haystack->len;
+	int i = row;
 
-	const uint32_t needle_char = needle->chars[0];  // First character of the needle
-	const uint32_t needle_upper = needle->unicode_upper[0];
+	const uint32_t needle_char = needle->chars[row];
+	const uint32_t needle_upper = needle->unicode_upper[row];
 
-	score_t gap_score = 1 == needle->len ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
 	score_t prev_score = SCORE_MIN;
+	score_t gap_score = i == n - 1 ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
 
-	for (int j = 0; j < n; j++) {
+	score_t prev_M, prev_D;
+
+	for (int j = 0; j < m; j++) {
 		if (haystack->chars[j] == needle_char || haystack->chars[j] == needle_upper) {
-			score_t score = (j * SCORE_GAP_LEADING) + haystack->bonus[j];
+			score_t score = SCORE_MIN;
+			if (!i) {
+				score = (j * SCORE_GAP_LEADING) + haystack->bonus[j];
+			} else if (j) { /* i > 0 && j > 0*/
+				score = MAX(
+						prev_M + haystack->bonus[j],
+
+						/* consecutive match, doesn't stack with match_bonus */
+						prev_D + SCORE_MATCH_CONSECUTIVE);
+			}
+			prev_D = last_D[j];
+			prev_M = last_M[j];
 			curr_D[j] = score;
 			curr_M[j] = prev_score = MAX(score, prev_score + gap_score);
 		} else {
+			prev_D = last_D[j];
+			prev_M = last_M[j];
 			curr_D[j] = SCORE_MIN;
 			curr_M[j] = prev_score = prev_score + gap_score;
 		}
 	}
 }
 
-
-static inline void match_row(const needle_info *needle,
-								const haystack_info *haystack,
-								const int row,
-								score_t *curr_D,
-								score_t *curr_M,
-								const score_t *last_D,
-								const score_t *last_M) {
-	const int n = needle->len;
-	const int m = haystack->len;
-	const uint32_t needle_char = needle->chars[row];
-	const uint32_t needle_upper = needle->unicode_upper[row];
-	const score_t gap_score = row == n - 1 ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
-	score_t prev_score = SCORE_MIN;
-
-	curr_D[0] = SCORE_MIN;
-	curr_M[0] = prev_score = SCORE_MIN + gap_score;  // Reflects the first gap score
-
-	for (int j = 1; j < m; j++) {
-		score_t score = SCORE_MIN;
-		if (haystack->chars[j] == needle_char || haystack->chars[j] == needle_upper) {
-			score = MAX(
-				last_M[j - 1] + haystack->bonus[j],
-				last_D[j - 1] + SCORE_MATCH_CONSECUTIVE
-			);
-		}
-		curr_D[j] = score;
-		curr_M[j] = prev_score = MAX(score, prev_score + gap_score);
-	}
-}
-
 score_t match_score(const needle_info* needle, const char* haystack_str) {
-	if (needle == NULL || needle->len == 0 || haystack_str == NULL || *haystack_str == '\0') {
+	if (*haystack_str == '\0') {
 		return SCORE_MIN;
+	}
+
+	if (needle->len == 0) {
+		return SCORE_NONE;
 	}
 
 	haystack_info haystack;
@@ -167,27 +228,16 @@ score_t match_score(const needle_info* needle, const char* haystack_str) {
 	 * D[][] Stores the best score for this position ending with a match.
 	 * M[][] Stores the best possible score at this position.
 	 */
-	score_t D[2][MATCH_MAX_LEN], M[2][MATCH_MAX_LEN];
-
-	score_t *last_D, *last_M;
-	score_t *curr_D, *curr_M;
-
-	last_D = D[0];
-	last_M = M[0];
-	curr_D = D[1];
-	curr_M = M[1];
+	score_t D[MATCH_MAX_LEN], M[MATCH_MAX_LEN];
 
 	// special case for i == 0
-	match_first_row(needle, &haystack, last_D, last_M);
+	// match_first_row(needle, &haystack, last_D, last_M);
 
-	for (int i = 1; i < n; i++) {
-		match_row(needle, &haystack, i, curr_D, curr_M, last_D, last_M);
-
-		SWAP(curr_D, last_D, score_t *);
-		SWAP(curr_M, last_M, score_t *);
+	for (int i = 0; i < n; i++) {
+		match_row(needle, &haystack, i, D, M, D, M);
 	}
 
-	return last_M[m - 1];
+	return M[m - 1];
 }
 
 score_t match_positions(const needle_info *needle, const char *haystack_str, int *positions) {
@@ -214,42 +264,51 @@ score_t match_positions(const needle_info *needle, const char *haystack_str, int
 	 * D[][] Stores the best score for this position ending with a match.
 	 * M[][] Stores the best possible score at this position.
 	 */
-	score_t D[MATCH_MAX_LEN][MATCH_MAX_LEN];
-	score_t M[MATCH_MAX_LEN][MATCH_MAX_LEN];
-	score_t *last_D, *last_M;
-	score_t *curr_D, *curr_M;
+	score_t (*D)[MATCH_MAX_LEN], (*M)[MATCH_MAX_LEN];
+	M = malloc(sizeof(score_t) * MATCH_MAX_LEN * n);
+	D = malloc(sizeof(score_t) * MATCH_MAX_LEN * n);
 
-	last_D = &D[0][0];
-	last_M = &M[0][0];
-
-	match_first_row(needle, &haystack, last_D, last_M);
-
+	match_row(needle, &haystack, 0, D[0], M[0], D[0], M[0]);
 	for (int i = 1; i < n; i++) {
-		curr_D = &D[i][0];
-		curr_M = &M[i][0];
-
-		match_row(needle, &haystack, i, curr_D, curr_M, last_D, last_M);
-
-		last_D = curr_D;
-		last_M = curr_M;
+		match_row(needle, &haystack, i, D[i], M[i], D[i - 1], M[i - 1]);
 	}
 
 	/* backtrace to find the positions of optimal matching */
-	int match_required = 0;
-	for (int i = n - 1, j = m - 1; i >= 0; i--) {
-		for (; j >= 0; j--) {
-			/*
-			 * Convert j (character position) to byte offset
-			 */
-			if (D[i][j] > SCORE_MIN && (match_required || D[i][j] == M[i][j])) {
-				match_required = (i > 0 && j > 0) && (M[i][j] == D[i - 1][j - 1] + SCORE_MATCH_CONSECUTIVE);
-				positions[i] = j--;
-				break;
+	if (positions) {
+		int match_required = 0;
+		for (int i = n - 1, j = m - 1; i >= 0; i--) {
+			for (; j >= 0; j--) {
+				/*
+				 * There may be multiple paths which result in
+				 * the optimal weight.
+				 *
+				 * For simplicity, we will pick the first one
+				 * we encounter, the latest in the candidate
+				 * string.
+				 */
+				if (D[i][j] != SCORE_MIN &&
+				    (match_required || D[i][j] == M[i][j])) {
+					/* If this score was determined using
+					 * SCORE_MATCH_CONSECUTIVE, the
+					 * previous character MUST be a match
+					 */
+					match_required =
+					    i && j &&
+					    M[i][j] == D[i - 1][j - 1] + SCORE_MATCH_CONSECUTIVE;
+					positions[i] = j--;
+					break;
+				}
 			}
 		}
 	}
 
-	return M[n - 1][m - 1];
+	score_t result = M[n - 1][m - 1];
+
+	free(M);
+	free(D);
+
+	return result;
+
 }
 
 static void resize_if_needed(needle_info* info, int needed_size) {
@@ -317,9 +376,9 @@ needle_info* prepare_needle(const char* needle) {
 		// Generate uppercase variant
 		if (decoded_char >= 'a' && decoded_char <= 'z') {
 			info->unicode_upper[pos] = decoded_char - 32;
-		} else if (decoded_char >= 0x00E0 && decoded_char <= 0x00FE && decoded_char != 0x00F7) {
-			if (decoded_char == 0x00DF) {
-				info->unicode_upper[pos] = decoded_char;  // Special case: ß remains unchanged
+		} else if (decoded_char >= U'à' && decoded_char <= U'þ') {
+			if (decoded_char == U'ß' || decoded_char == U'÷') {
+				info->unicode_upper[pos] = decoded_char;
 			} else {
 				info->unicode_upper[pos] = decoded_char - 32;
 			}

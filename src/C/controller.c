@@ -132,7 +132,7 @@ static bool bob_launcher_app_hide_window(void* user_data) {
 }
 
 static bool state_update_layout_idle(void* user_data) {
-    state_update_layout ((BobLauncherSearchingFor) -999);
+    state_update_layout ((BobLauncherSearchingFor) CURRENT_CATEGORY);
     return false;
 }
 
@@ -249,7 +249,7 @@ void controller_start_search(const char* search_query) {
         case bob_launcher_SEARCHING_FOR_PLUGINS: {
             HashSet* result_provider = data_sink_search_for_plugins(search_query, event_id);
             state_update_provider(bob_launcher_SEARCHING_FOR_PLUGINS, result_provider, 0);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             break;
         }
 
@@ -258,7 +258,7 @@ void controller_start_search(const char* search_query) {
             if (plg == NULL && strcmp(search_query, "") == 0) {
                 HashSet* empty_provider = state_empty_provider(event_id);
                 state_update_provider(bob_launcher_SEARCHING_FOR_SOURCES, empty_provider, 0);
-                state_update_layout(-999);
+                state_update_layout(CURRENT_CATEGORY);
                 return;
             }
 
@@ -277,7 +277,7 @@ void controller_start_search(const char* search_query) {
                 HashSet* rs_array = data_sink_search_for_actions(search_query, source, event_id);
                 state_update_provider(bob_launcher_SEARCHING_FOR_ACTIONS, rs_array, 0);
             }
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             break;
         }
 
@@ -285,7 +285,7 @@ void controller_start_search(const char* search_query) {
             BobLauncherMatch* action = state_selected_action();
             HashSet* target_provider = data_sink_search_for_targets(search_query, action, event_id);
             state_update_provider(bob_launcher_SEARCHING_FOR_TARGETS, target_provider, 0);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             break;
         }
 
@@ -343,7 +343,7 @@ bool controller_handle_command(int command) {
 
         case KEYBINDINGS_COMMAND_FIRST_MATCH:
             controller_goto_match_abs(0);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH:
@@ -356,7 +356,7 @@ bool controller_handle_command(int command) {
 
         case KEYBINDINGS_COMMAND_LAST_MATCH:
             controller_goto_match_abs(-1);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_CHAR_LEFT:
@@ -396,16 +396,15 @@ bool controller_handle_command(int command) {
             int relative_index = command - KEYBINDINGS_COMMAND_MATCH_1;
             if (relative_index >= bob_launcher_result_box_visible_size) return true;
             BobLauncherMatchRow* row = bob_launcher_result_box_row_pool[relative_index];
-            int abs_index = row->abs_index;
-            controller_goto_match_abs(abs_index);
-            state_update_layout ((BobLauncherSearchingFor) -999); // update the UI
+            controller_goto_match_abs(row->abs_index);
+            state_update_layout ((BobLauncherSearchingFor) CURRENT_CATEGORY);
             controller_execute(true);
             return true;
         }
 
         case KEYBINDINGS_COMMAND_NEXT_MATCH:
             controller_goto_match(1);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_NEXT_PANE: {
@@ -430,12 +429,12 @@ bool controller_handle_command(int command) {
 
         case KEYBINDINGS_COMMAND_PAGE_DOWN:
             controller_page(true);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_PAGE_UP:
             controller_page(false);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_PASTE:
@@ -455,7 +454,7 @@ bool controller_handle_command(int command) {
         case KEYBINDINGS_COMMAND_PREV_MATCH:
 
             controller_goto_match(-1);
-            state_update_layout(-999);
+            state_update_layout(CURRENT_CATEGORY);
             return true;
 
         case KEYBINDINGS_COMMAND_PREV_PANE: {

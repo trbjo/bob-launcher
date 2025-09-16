@@ -1,5 +1,4 @@
-#ifndef HIGHLIGHT_H
-#define HIGHLIGHT_H
+#pragma once
 
 #include <gdk/gdk.h>
 #include <pango/pango.h>
@@ -89,5 +88,3 @@ void highlight_positions_free(HighlightPositions* positions);
 #ifndef MATCH_MAX_LEN
 #define MATCH_MAX_LEN 256
 #endif
-
-#endif // HIGHLIGHT_H

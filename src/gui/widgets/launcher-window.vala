@@ -10,6 +10,8 @@ namespace BobLauncher {
         public bool client_side_shadow { get; set; }
         public bool inhibit_system_shortcuts { get; set; }
 
+        private Gdk.Wayland.Toplevel surf;
+
         construct {
             appsettings = AppSettings.get_default();
 
@@ -48,8 +50,6 @@ namespace BobLauncher {
 
             LayerShell.setup_layer_shell(this, appsettings);
             disable_controllers();
-            map.connect_after(enable_custom_controller);
-            map.connect_after(setup_monitor_watcher);
         }
 
         private void handle_border_settings() {
@@ -61,9 +61,6 @@ namespace BobLauncher {
         }
 
         private void handle_shortcut_inhibit() {
-            var surf = this.get_surface() as Gdk.Wayland.Toplevel;
-            if (surf == null) return;
-
             if (inhibit_system_shortcuts && visible) {
                 surf.inhibit_system_shortcuts(null);
             } else {
@@ -89,32 +86,11 @@ namespace BobLauncher {
             }
         }
 
-        private void setup_monitor_watcher() {
-            map.disconnect(setup_monitor_watcher);
-            var surf = this.get_surface() as Gdk.Surface;
-            surf.enter_monitor.connect_after(on_monitor_changed);
-        }
-
         private void on_monitor_changed() {
             Idle.add(() => {
                 LayerShell.adjust_layershell_margins(this, last_width, last_height);
                 return false;
             }, GLib.Priority.LOW);
-        }
-
-        private void enable_custom_controller() {
-            map.disconnect(enable_custom_controller);
-            var native = this.get_native();
-            var gdk_surface = native.get_surface();
-            unowned var wayland_surface = ((Gdk.Wayland.Surface)gdk_surface).get_wl_surface();
-
-            SimpleKeyboard.initialize(
-                wayland_surface,
-                Controller.handle_key_press,
-                Controller.handle_key_release,
-                Controller.handle_focus_enter,
-                Controller.handle_focus_leave
-            );
         }
 
         Graphene.Rect inner;
@@ -142,19 +118,40 @@ namespace BobLauncher {
         }
 
         internal override void hide() {
-            ((Gdk.Wayland.Toplevel) this.get_surface()).restore_system_shortcuts();
+            surf.restore_system_shortcuts();
             base.hide();
             State.reset();
         }
 
+        internal void ensure_surface() {
+            var mysurf = this.get_surface() as Gdk.Surface;
+            mysurf.enter_monitor.connect_after(on_monitor_changed);
+
+            var native = this.get_native();
+            var gdk_surface = native.get_surface();
+            surf = this.get_surface() as Gdk.Wayland.Toplevel;
+            unowned var wayland_surface = ((Gdk.Wayland.Surface)gdk_surface).get_wl_surface();
+
+            SimpleKeyboard.initialize(
+                wayland_surface,
+                Controller.handle_key_press,
+                Controller.handle_key_release,
+                Controller.handle_focus_enter,
+                Controller.handle_focus_leave
+            );
+        }
+
         public override void show() {
-            base.show();
-
-            var surf = this.get_surface() as Gdk.Wayland.Toplevel;
-            if (surf == null) return;
-
-            if (inhibit_system_shortcuts) surf.inhibit_system_shortcuts(null);
-            surf.set_application_id(BOB_LAUNCHER_APP_ID);
+            if (!this.get_realized()) {
+                base.show();
+                ensure_surface();
+                if (inhibit_system_shortcuts) surf.inhibit_system_shortcuts(null);
+                surf.set_application_id(BOB_LAUNCHER_APP_ID);
+            } else {
+                if (inhibit_system_shortcuts) surf.inhibit_system_shortcuts(null);
+                surf.set_application_id(BOB_LAUNCHER_APP_ID);
+                base.show();
+            }
         }
     }
 }

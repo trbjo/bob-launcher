@@ -121,12 +121,14 @@ namespace BobLauncher {
                     text_label.max_width_chars = 70;
                     text_label.wrap = true;
                     text_label.use_markup = false;
+                    text_label.add_css_class("monospace");
                     box.append(text_label);
 
                     var line_count = count_lines_in_file(file);
                     if (line_count > 0) {
                         var lines_label = new Gtk.Label("%d lines".printf(line_count));
                         lines_label.xalign = 0;
+                        lines_label.add_css_class("dim-label");
                         box.append(lines_label);
                     }
                 }

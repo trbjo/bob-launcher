@@ -12,17 +12,13 @@ namespace BobLauncher {
         private static MainLoop? main_loop = null;
         private static SocketService? socket_service = null;
 
-        private static void open_files(File[] files, string? hint) {
+        private static void open_uris(List<string> uris, string? hint) {
             string[] env = Environ.get();
             if (hint != null && hint != "") {
                 env = Environ.set_variable(env, "XDG_ACTIVATION_TOKEN", hint);
             }
 
-            var file_list = new List<File>();
-            foreach (File f in files) {
-                file_list.append(f);
-            }
-            launcher.launch_files_internal(file_list, env);
+            launcher.launch_uris_internal(uris, env);
         }
 
         private static void open_settings() {
@@ -185,7 +181,7 @@ namespace BobLauncher {
                         uint16 count = ((uint16)msg_buf[offset]) | ((uint16)msg_buf[offset + 1] << 8);
                         offset += 2;
 
-                        var files = new File[0];
+                        var uris = new List<string>();
 
                         for (int i = 0; i < count && offset < msg_len; i++) {
                             if (offset + 2 > msg_len) break;
@@ -195,13 +191,18 @@ namespace BobLauncher {
 
                             if (offset + len > msg_len) break;
 
-                            string path = (string)msg_buf[offset : offset + len + 1];  // +1 for null
+                            string uri = (string)msg_buf[offset : offset + len + 1];  // +1 for null
+                            if (FileUtils.test(uri, FileTest.EXISTS)) {
+                                var f = File.new_for_path(uri);
+                                uri = f.get_uri();
+                            }
+
                             offset += len + 1;  // +1 for null terminator
-                            files += File.new_for_commandline_arg(path);
+                            uris.append(uri);
                         }
 
-                        if (files.length > 0) {
-                            open_files(files, token);
+                        if (uris.length() > 0) {
+                            open_uris(uris, token);
                         }
                         break;
 

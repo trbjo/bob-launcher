@@ -9,10 +9,10 @@ namespace BobLauncher {
         public unowned string get_query ();
 
         [CCode (cname = "result_container_add_lazy_unique")]
-        public void add_lazy_unique (uint64 hash, int16 relevancy, owned MatchFactory factory);
+        public void add_lazy_unique (int16 relevancy, owned MatchFactory factory);
 
         [CCode (cname = "result_container_add_lazy")]
-        public void add_lazy (uint64 hash, int16 relevancy, owned MatchFactory factory);
+        public void add_lazy (uint32 hash, int16 relevancy, owned MatchFactory factory);
 
         [CCode (cname = "result_container_has_match")]
         public bool has_match (string? haystack);

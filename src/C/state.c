@@ -5,26 +5,10 @@
 #include "hashset.h"
 #include "thread-manager.h"
 #include "events.h"
+#include "state.h"
 #include "string-utils.h"
 #include "bob-launcher.h"
 
-typedef enum {
-    bob_launcher_SEARCHING_FOR_RESET = -1,
-    bob_launcher_SEARCHING_FOR_PLUGINS = 0,
-    bob_launcher_SEARCHING_FOR_SOURCES = 1,
-    bob_launcher_SEARCHING_FOR_ACTIONS = 2,
-    bob_launcher_SEARCHING_FOR_TARGETS = 3,
-    bob_launcher_SEARCHING_FOR_COUNT = 4
-} BobLauncherSearchingFor;
-
-/* String Builder replacement */
-typedef struct {
-    char* str;
-    size_t len;
-    size_t capacity;
-} StringBuilder;
-
-/* State variables */
 BobLauncherSearchingFor state_sf;
 HashSet** state_providers = NULL;
 int state_providers_length1 = 0;
@@ -226,13 +210,12 @@ int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, i
 }
 
 void state_update_layout(BobLauncherSearchingFor what) {
-    // Using the current sf value if -999 is passed
+    // Using the current sf value if CURRENT_CATEGORY is passed
     // This allows us to simulate a default parameter in C
-    if (what == -999) {
-        what = state_sf;
+    if (what != CURRENT_CATEGORY) {
+        state_sf = what;
     }
 
-    state_sf = what;
     bob_launcher_main_container_update_layout(
         state_providers[state_sf],
         state_selected_indices[state_sf]
@@ -297,7 +280,7 @@ void state_change_category(BobLauncherSearchingFor what) {
     bob_launcher_query_container_adjust_label_for_query(text, state_cursor_positions[state_sf]);
 
     if (should_update) {
-        state_update_layout(-999);
+        state_update_layout(CURRENT_CATEGORY);
     }
 }
 

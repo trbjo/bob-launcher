@@ -1,5 +1,4 @@
-#ifndef HASHSET_H
-#define HASHSET_H
+#pragma once
 
 #include <stddef.h>
 #include "result-container.h"
@@ -10,6 +9,9 @@
 #define CACHE_LINE_SIZE 64
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
+
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+
 
 typedef void (*GDestroyNotify)(void* data);
 
@@ -46,9 +48,13 @@ typedef struct {
 
 HashSet* hashset_create(const char* query, int event_id);
 void hashset_destroy(HashSet* set);
-void hashset_merge(HashSet* hashset, ResultContainer* container);
+
+void hashset_merge_prefer_hash(HashSet* set, ResultContainer* current);
+#define hashset_merge hashset_merge_prefer_hash
+void hashset_merge_prefer_insertion(HashSet* set, ResultContainer* current);
+
 void hashset_prepare(HashSet* hashset);
-ResultContainer* hashset_create_handle(HashSet* hashset);
+ResultContainer* hashset_create_handle(HashSet* hashset, int16_t bonus);
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int n);
 
-#endif // HASHSET_H
+#define hashset_create_default_handle(set) hashset_create_handle(set, 0)

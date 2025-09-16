@@ -1,12 +1,36 @@
 #include "result-container.h"
 #include <stdlib.h>
+#include <constants.h>
 #include <string.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdint.h>
 
-extern int events_ok(unsigned int event_id);
+extern int events_ok(int event_id);
+
+_Atomic uintptr_t g_match_funcs[MAX_FUNC_SLOTS];
+_Atomic uintptr_t g_destroy_funcs[MAX_FUNC_SLOTS];
+
+static inline int find_or_add_func(uintptr_t* global_array, int* mre_idx, uintptr_t func) {
+    if (!func) return NULL_FUNC_IDX;
+    if (global_array[*mre_idx] == func) {
+        return *mre_idx;
+    }
+
+    uintptr_t* current_pos = global_array;
+
+    while (func != *current_pos) {
+        while (*current_pos != 0 && func != *current_pos) current_pos++;
+        if (func == *current_pos) break;
+        uintptr_t expected = 0;
+        atomic_compare_exchange_weak((_Atomic uintptr_t*)current_pos, &expected, func);
+    }
+
+    int idx = current_pos - global_array;
+    *mre_idx = idx;
+    return idx;
+}
 
 ALWAYS_INLINE const char* result_container_get_query(ResultContainer* self) {
     return self->query;
@@ -58,18 +82,16 @@ static inline bool add_worker_sheet(ResultContainer* container) {
     return container->current_sheet != NULL;
 }
 
-// taken from the thread manager -- will probably work only on x86
-static inline uint128_t pack_match_data(MatchFactory factory, void* factory_user_data,
-                         GDestroyNotify factory_destroy, bool is_duplicate) {
-    int64_t data_diff = (factory_user_data == NULL) ? 0 : (int64_t)((char*)factory_user_data - (char*)factory);
-    int64_t destroy_diff = (factory_destroy == NULL) ? 0 : (int64_t)((char*)factory_destroy - (char*)factory);
-    int64_t is_data_diff = llabs(data_diff) < llabs(destroy_diff);
+static uint64_t pack_match_data(ResultContainer* container, MatchFactory func,
+                               void* factory_user_data, GDestroyNotify destroy_func) {
+    int match_idx = find_or_add_func((uintptr_t*)g_match_funcs,
+                                    &container->match_mre_idx, (uintptr_t)func);
+    int destroy_idx = find_or_add_func((uintptr_t*)g_destroy_funcs,
+                                      &container->destroy_mre_idx, (uintptr_t)destroy_func);
 
-    uint128_t packed = ((uint128_t)(int64_t)factory) >> PTR_ALIGN_SHIFT;
-    packed |= (uint128_t)is_data_diff << PTR_BITS;
-    packed |= (uint128_t)is_duplicate << (PTR_BITS + 1);
-    packed |= (((uint128_t)(int64_t)(is_data_diff ? factory_destroy : factory_user_data)) >> SCND_PTR_ALIGN_SHIFT) << SECOND_PTR;
-    packed |= (((uint128_t)(int64_t)(is_data_diff ? data_diff : destroy_diff)) >> PTR_ALIGN_SHIFT) << DIFF_START;
+    uint64_t packed = ((uint64_t)factory_user_data >> 4);
+    packed |= ((uint64_t)match_idx & 0x3F) << 51;
+    packed |= ((uint64_t)destroy_idx & 0x3F) << 57;
 
     return packed;
 }
@@ -94,12 +116,22 @@ void container_destroy(ResultContainer* container) {
     container->query = NULL;
 
     free(container);
+    container = NULL;
 }
 
-
-bool result_container_insert(ResultContainer* container, uint64_t hash, int16_t relevancy,
+bool result_container_insert(ResultContainer* container, uint32_t hash, int16_t relevancy,
                           MatchFactory func, void* factory_user_data,
-                          GDestroyNotify destroy_func, bool is_unique) {
+                          GDestroyNotify destroy_func) {
+
+    if (relevancy <= SCORE_MIN) {
+        return false;
+    }
+    // clamp to int16_t bounds if necessary
+    int32_t adjusted_relevancy = (int32_t)container->bonus + (int32_t)relevancy;
+    relevancy = (int16_t)((adjusted_relevancy > INT16_MAX) ? INT16_MAX :
+                         (adjusted_relevancy < INT16_MIN) ? INT16_MIN :
+                         adjusted_relevancy);
+
 
     if (!container->current_sheet || container->current_sheet->size >= RESULTS_PER_SHEET) {
         if (!add_worker_sheet(container)) {
@@ -109,9 +141,8 @@ bool result_container_insert(ResultContainer* container, uint64_t hash, int16_t 
 
     ResultSheet* sheet = container->current_sheet;
 
-    uint64_t myhash = is_unique ? 0 : hash;
-    uint64_t packed = PACK_MATCH(relevancy, sheet->global_index, sheet->size, myhash);
+    uint64_t packed = PACK_MATCH(relevancy, sheet->global_index, sheet->size, hash);
     container->items[container->size++] = packed;
-    sheet->match_pool[sheet->size++] = pack_match_data(func, factory_user_data, destroy_func, false);
+    sheet->match_pool[sheet->size++] = pack_match_data(container, func, factory_user_data, destroy_func);
     return true;
 }

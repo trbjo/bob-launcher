@@ -2,7 +2,7 @@ namespace Hash {
     [Compact]
     [CCode (cheader_filename = "hashset.h", cname = "HashSet", free_function="", ref_function="", unref_function = "", has_type_id = false)]
     public class HashSet {
-        [CCode (cname = "hashset_create_handle")]
+        [CCode (cname = "hashset_create_default_handle")]
         public BobLauncher.ResultContainer create_handle();
 
         public unowned string query;

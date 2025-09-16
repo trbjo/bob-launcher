@@ -2,6 +2,7 @@ project('io.github.trbjo.bob.launcher', 'vala', 'c',
     version: '0.5.0',
     default_options: [
         'buildtype=release',
+        'optimization=3',
         'b_lto=true',
         'prefix=/usr/local'
     ]
@@ -29,7 +30,6 @@ lib_sources = files(
     'src/core/launch-context/systemd-launcher.vala',
     'src/core/launch-context/common-launcher.vala',
     'src/core/launch-context/launch-context.vala',
-    'src/core/data-sink.vala',
     'src/core/match/file-match.vala',
     'src/core/match/paintable.vala',
     'src/core/match/match.vala',
@@ -59,6 +59,8 @@ lib_sources = files(
 )
 
 c_sources = files(
+    'src/C/constants.h',
+    'src/C/xxhash-override.h',
     # 'src/C/plugin-base.c',
     'src/core/launch-context/access-appinfo-props.c',
     'src/core/launch-context/access-appinfo-props.h',
@@ -66,6 +68,7 @@ c_sources = files(
     'src/C/dbus-scope-monitor.c',
     'src/C/data-sink-actions.c',
     'src/C/data-sink-sources.c',
+    'src/C/data-sink-plugins.c',
     'src/C/state.c',
     'src/C/controller.c',
     'src/C/keybindings.c',
@@ -112,13 +115,23 @@ launcher_lib = shared_library('bob-launcher',
         file_monitor_dep,
         meson.get_compiler('c').find_library('m'),
         meson.get_compiler('c').find_library('dbus-1'),
+        meson.get_compiler('c').find_library('xxhash'),
     ],
     include_directories: inc_dirs,
     c_args: [
-    '-D_GNU_SOURCE',
-    '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
-    '-I/usr/include/dbus-1.0',
-    '-I/usr/lib/dbus-1.0/include'
+        '-march=native',
+        '-D_GNU_SOURCE',
+        '-fno-plt',              # For function pointer calls
+        '-fno-stack-protector',  # Remove stack protection overhead
+        '-funroll-loops',        # Unroll loops
+        '-ffast-math',           # Fast math operations
+        '-fno-plt',              # Better indirect calls
+        '-ftree-vectorize',      # Enable vectorization
+        '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
+        '-I/usr/include/xxhash',
+        '-include', join_paths(meson.current_source_dir(), 'src/C/xxhash-override.h'),
+        '-I/usr/include/dbus-1.0',
+        '-I/usr/lib/dbus-1.0/include'
     ],
     vala_args: [
         '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
@@ -129,7 +142,6 @@ launcher_lib = shared_library('bob-launcher',
         '--pkg', 'systemd-scope',
         # '--pkg', 'plugin-base',
         '--pkg', 'dbus-scope-monitor',
-        # '--pkg', 'systemd-scope-monitor',
         '--pkg', 'keybindings',
         '--pkg', 'icon-cache-service',
         '--pkg', 'controller',

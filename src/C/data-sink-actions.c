@@ -11,6 +11,8 @@
 #include <float.h>
 #include <math.h>
 
+#include "constants.h"
+
 typedef int16_t Score;
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef struct _BobLauncherAction BobLauncherAction;
@@ -29,7 +31,7 @@ extern Score bob_launcher_action_get_relevancy(BobLauncherAction* action, BobLau
 extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 extern char* bob_launcher_match_get_description(BobLauncherMatch* match);
 extern GPtrArray* plugin_loader_loaded_plugins;
-extern gboolean bob_launcher_plugin_base_is_enabled (BobLauncherPluginBase* self);
+extern gboolean bob_launcher_plugin_base_get_enabled (BobLauncherPluginBase* self);
 extern void bob_launcher_plugin_base_find_for_match (BobLauncherPluginBase* self,
                                           BobLauncherMatch* match,
                                           ActionSetInternal* rs);
@@ -44,7 +46,7 @@ ActionSetInternal* action_set_new(BobLauncherMatch* m, const char* query, int cu
     self->si = prepare_needle(query);
     self->score_threshold = score_threshold;
     self->hsh = hashset_create(query, current_event);
-    self->rc = hashset_create_handle(self->hsh);
+    self->rc = hashset_create_default_handle(self->hsh);
 
     return self;
 }
@@ -69,10 +71,6 @@ HashSet* action_set_to_hashset(ActionSetInternal* self) {
 
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 
-static BobLauncherMatch* create_match_from_action(BobLauncherAction* action) {
-    return g_object_ref((BobLauncherMatch*)action); /* Actions are also Matches in this API */
-}
-
 void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
     ActionSetInternal* self = (ActionSetInternal*)_self;
 
@@ -84,25 +82,23 @@ void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
         return;
     }
 
-    uint64_t identity = (uint64_t)(uintptr_t)action;
-
     if (self->query_empty) {
-        result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
-                                         (MatchFactory)create_match_from_action,
+        result_container_add_lazy_unique(self->rc, basic_relevancy,
+                                         (MatchFactory)g_object_ref,
                                          action, NULL);
     } else {
         char* title = bob_launcher_match_get_title((BobLauncherMatch*)action);
         if (title && query_has_match(self->si, title)) {
             basic_relevancy = match_score(self->si, title);
-            result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
-                                             (MatchFactory)create_match_from_action,
+            result_container_add_lazy_unique(self->rc, basic_relevancy,
+                                             (MatchFactory)g_object_ref,
                                              action, NULL);
         } else {
             char* desc = bob_launcher_match_get_description((BobLauncherMatch*)action);
             if (desc && query_has_match(self->si, desc)) {
                 basic_relevancy = match_score(self->si, desc);
-                result_container_add_lazy_unique(self->rc, identity, basic_relevancy,
-                                                 (MatchFactory)create_match_from_action,
+                result_container_add_lazy_unique(self->rc, basic_relevancy,
+                                                 (MatchFactory)g_object_ref,
                                                  action, NULL);
             }
         }
@@ -112,13 +108,13 @@ void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
 HashSet* data_sink_search_for_actions(const char* query, BobLauncherMatch* m, int event_id) {
     if (!query || !m) return NULL;
 
-    ActionSetInternal* rs = action_set_new(m, query, event_id, MATCH_SCORE_THRESHOLD);
+    ActionSetInternal* rs = action_set_new(m, query, event_id, SCORE_THRESHOLD);
     if (!rs) return NULL;
 
     /* Process all plugins */
     for (guint i = 0; i < plugin_loader_loaded_plugins->len; i++) {
         BobLauncherPluginBase* plg = g_ptr_array_index(plugin_loader_loaded_plugins, i);
-        if (bob_launcher_plugin_base_is_enabled(plg)) {
+        if (bob_launcher_plugin_base_get_enabled(plg)) {
             bob_launcher_plugin_base_find_for_match(plg, m, (ActionSetInternal*)rs);
         }
     }

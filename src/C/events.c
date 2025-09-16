@@ -1,8 +1,8 @@
 #include "events.h"
 
-static atomic_int _event __attribute__((aligned(64)));
+static atomic_int _event __attribute__((aligned(64))) = 0;
 
-int events_ok(uint32_t event_id) {
+int32_t events_ok(int32_t event_id) {
     return event_id == atomic_load(&_event);
 }
 

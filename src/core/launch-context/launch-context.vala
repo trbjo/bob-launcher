@@ -11,7 +11,8 @@ namespace BobLauncher {
 
             if (is_systemd_available) {
                 try {
-                    launcher = new SystemdLauncher();
+                    var connection = Bus.get_sync(BusType.SESSION);
+                    launcher = GLib.Object.new(typeof(SystemdLauncher), "connection", connection) as SystemdLauncher;
                     debug("Using SystemdLauncher");
                 } catch (Error e) {
                     warning("Failed to initialize SystemdLauncher: %s", e.message);
@@ -44,6 +45,10 @@ namespace BobLauncher {
 
         internal bool launch_files_internal(List<File> files, string[] env) {
             return launcher.launch_files(files, env);
+        }
+
+        internal bool launch_uris_internal(List<string> uris, string[]? env = null) {
+            return launcher.launch_uris(uris, env);
         }
 
         public bool launch_uri(string uri) {
