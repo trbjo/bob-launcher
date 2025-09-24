@@ -330,12 +330,12 @@ namespace BobLauncher {
 
                 string home = "file://" + path_builder.str;
                 var home_icon = new Description("user-home-symbolic", "image", FragmentType.IMAGE,
-                                               () => Utils.launch_uri(home), null);
+                                               () => BobLaunchContext.get_instance().launch_uri(home), null);
                 path_group.add_child(home_icon);
             } else {
                 search_path = file_path;
                 var root_icon = new Description("drive-harddisk-symbolic", "image", FragmentType.IMAGE,
-                                               () => Utils.launch_uri("file:///"), null);
+                                               () => BobLaunchContext.get_instance().launch_uri("file:///"), null);
                 path_group.add_child(root_icon);
             }
 
@@ -355,7 +355,7 @@ namespace BobLauncher {
 
                     var target = "file://" + path_builder.str;
                     desc = new Description(component, "path-fragment", FragmentType.TEXT,
-                                         () => Utils.launch_uri(target), attrs);
+                                         () => BobLaunchContext.get_instance().launch_uri(target), attrs);
                 }
                 search_path_offset += component.length;
 

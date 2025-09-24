@@ -173,14 +173,6 @@ namespace BobLauncher {
             }
         }
 
-        public static void launch_uri(string uri) {
-            try {
-                AppInfo.launch_default_for_uri(uri, Gdk.Display.get_default().get_app_launch_context());
-            } catch (Error err) {
-                warning ("%s", err.message);
-            }
-        }
-
         public static bool is_all_lowercase(string str) {
             for (int i = 0; i < str.length; i++) {
                 unichar c = str.get_char(i);
