@@ -178,6 +178,7 @@ namespace BobLauncher {
             if (State.sf < SearchingFor.ACTIONS) return;
             unowned Match? m = State.selected_source();
             if (m == null) return;
+
             unowned Gdk.Paintable match_icon = IconCacheService.get_paintable_for_icon_name(m.get_icon_name(), height, get_scale_factor());
             snapshot.save();
             snapshot.translate({ thumbnail_location(), 0 });

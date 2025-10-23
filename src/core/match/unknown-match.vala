@@ -1,5 +1,5 @@
 namespace BobLauncher {
-    public class UnknownMatch : Match {
+    public class UnknownMatch : Match, ITextMatch {
         private string query_string;
 
         public override string get_title() {
@@ -8,6 +8,10 @@ namespace BobLauncher {
 
         public override string get_description() {
             return "";
+        }
+
+        public string get_text() {
+            return this.query_string;
         }
 
         public override string get_icon_name() {
@@ -23,5 +27,4 @@ namespace BobLauncher {
             this.query_string = query_string;
         }
     }
-
 }

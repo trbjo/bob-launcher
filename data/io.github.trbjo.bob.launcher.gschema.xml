@@ -146,10 +146,6 @@
       <summary>Execute without hiding</summary>
       <description>Keyboard shortcuts to execute the selected item without hiding the launcher window.</description>
     </key>
-    <key name="show-settings" type="as">
-      <default>['&lt;Control&gt;comma']</default>
-      <summary>Show Settings Window</summary>
-    </key>
     <key name="delete-char-backward" type="as">
       <default>['BackSpace']</default>
       <summary>Delete character backword</summary>
@@ -224,6 +220,57 @@
       <summary>Next pane</summary>
       <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
     </key>
+    <key name="next-pane-1" type="as">
+      <default>['&lt;Alt&gt;1']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-2" type="as">
+      <default>['&lt;Alt&gt;2']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-3" type="as">
+      <default>['&lt;Alt&gt;3']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-4" type="as">
+      <default>['&lt;Alt&gt;4']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-5" type="as">
+      <default>['&lt;Alt&gt;5']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-6" type="as">
+      <default>['&lt;Alt&gt;6']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-7" type="as">
+      <default>['&lt;Alt&gt;7']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-8" type="as">
+      <default>['&lt;Alt&gt;8']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-9" type="as">
+      <default>['&lt;Alt&gt;9']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+    <key name="next-pane-10" type="as">
+      <default>['&lt;Alt&gt;0']</default>
+      <summary>Next pane</summary>
+      <description>Keyboard shortcuts to switch to the next pane or section in the launcher.</description>
+    </key>
+
     <key name="prev-pane" type="as">
       <default>['&lt;Shift&gt;ISO_Left_Tab']</default>
       <summary>Previous pane</summary>
@@ -308,16 +355,6 @@
       <default>['&lt;Control&gt;0']</default>
       <summary>Select tenth match</summary>
       <description>Keyboard shortcuts to select the tenth match in the results list.</description>
-    </key>
-    <key name="sneak-peek" type="as">
-      <default>['Super_L']</default>
-      <summary>SneakPeek highlight.</summary>
-      <description>Shows a preview of the file if supported by your system</description>
-    </key>
-    <key name="sneak-peek-release" type="as">
-      <default>['&lt;Super&gt;Super_L']</default>
-      <summary>Release SneakPeek highlight</summary>
-      <description>Keyboard shortcuts to deactivate the match highlight feature when released.</description>
     </key>
   </schema>
 </schemalist>

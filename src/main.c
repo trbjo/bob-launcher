@@ -23,11 +23,11 @@
 static int flag_hidden = 0;
 static enum { MODE_NONE, MODE_PLUGIN, MODE_OPEN } flag_mode = MODE_NONE;
 static int flag_select_plugin = 0;
-static char *flag_plugin_name = NULL;
+static char* flag_plugin_name = NULL;
 static char plugin_args[4096] = {0};
 static int plugin_args_len = 0;
 
-static char **remaining_args = NULL;
+static char** remaining_args = NULL;
 static int remaining_argc = 0;
 
 // Global structure to hold parsed environment variables

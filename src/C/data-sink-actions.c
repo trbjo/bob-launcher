@@ -22,7 +22,6 @@ typedef struct {
     HashSet* hsh;
     BobLauncherMatch* m;
     bool query_empty;
-    Score score_threshold;
     needle_info* si;
     ResultContainer* rc;
 } ActionSetInternal;
@@ -37,16 +36,15 @@ extern void bob_launcher_plugin_base_find_for_match (BobLauncherPluginBase* self
                                           ActionSetInternal* rs);
 
 
-ActionSetInternal* action_set_new(BobLauncherMatch* m, const char* query, int current_event, Score score_threshold) {
+ActionSetInternal* action_set_new(BobLauncherMatch* m, const char* query, int current_event) {
     ActionSetInternal* self = malloc(sizeof(ActionSetInternal));
     if (!self) return NULL;
 
     self->m = m;
     self->query_empty = g_utf8_strlen(query, -1) == 0;
     self->si = prepare_needle(query);
-    self->score_threshold = score_threshold;
-    self->hsh = hashset_create(query, current_event);
-    self->rc = hashset_create_default_handle(self->hsh);
+    self->hsh = hashset_create(current_event);
+    self->rc = hashset_create_default_handle(self->hsh, query);
 
     return self;
 }
@@ -76,42 +74,31 @@ void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
 
     if (!self || !action) return;
 
-    Score basic_relevancy = bob_launcher_action_get_relevancy(action, self->m);
-
-    if (basic_relevancy < self->score_threshold) {
-        return;
-    }
+    Score score = bob_launcher_action_get_relevancy(action, self->m);
+    if (score < SCORE_THRESHOLD) return;
 
     if (self->query_empty) {
-        result_container_add_lazy_unique(self->rc, basic_relevancy,
+        result_container_add_lazy_unique(self->rc, score,
                                          (MatchFactory)g_object_ref,
-                                         action, NULL);
-    } else {
-        char* title = bob_launcher_match_get_title((BobLauncherMatch*)action);
-        if (title && query_has_match(self->si, title)) {
-            basic_relevancy = match_score(self->si, title);
-            result_container_add_lazy_unique(self->rc, basic_relevancy,
-                                             (MatchFactory)g_object_ref,
-                                             action, NULL);
-        } else {
-            char* desc = bob_launcher_match_get_description((BobLauncherMatch*)action);
-            if (desc && query_has_match(self->si, desc)) {
-                basic_relevancy = match_score(self->si, desc);
-                result_container_add_lazy_unique(self->rc, basic_relevancy,
-                                                 (MatchFactory)g_object_ref,
-                                                 action, NULL);
-            }
-        }
+                                         g_object_ref(action), g_object_unref);
+    } else if ((score = match_score(self->si, bob_launcher_match_get_title((BobLauncherMatch*)action))) >= SCORE_THRESHOLD) {
+        result_container_add_lazy_unique(self->rc, score,
+                                         (MatchFactory)g_object_ref,
+                                         g_object_ref(action), g_object_unref);
+    } else if ((score = match_score(self->si, bob_launcher_match_get_description((BobLauncherMatch*)action))) >= SCORE_THRESHOLD) {
+        score = score >> 1;
+        result_container_add_lazy_unique(self->rc, score,
+                                         (MatchFactory)g_object_ref,
+                                         g_object_ref(action), g_object_unref);
     }
 }
 
 HashSet* data_sink_search_for_actions(const char* query, BobLauncherMatch* m, int event_id) {
     if (!query || !m) return NULL;
 
-    ActionSetInternal* rs = action_set_new(m, query, event_id, SCORE_THRESHOLD);
+    ActionSetInternal* rs = action_set_new(m, query, event_id);
     if (!rs) return NULL;
 
-    /* Process all plugins */
     for (guint i = 0; i < plugin_loader_loaded_plugins->len; i++) {
         BobLauncherPluginBase* plg = g_ptr_array_index(plugin_loader_loaded_plugins, i);
         if (bob_launcher_plugin_base_get_enabled(plg)) {

@@ -205,6 +205,9 @@ namespace BobLauncher {
                         if (desc.fragment_func != null) {
                             icon.set_data("fragment", desc);
                             icon.add_css_class("clickable");
+                            icon.can_target = true;
+                        } else {
+                            icon.can_target = false;
                         }
                         icon.visible = true;
                     } else {
@@ -216,6 +219,9 @@ namespace BobLauncher {
                         if (desc.fragment_func != null) {
                             icon.set_data("fragment", desc);
                             icon.add_css_class("clickable");
+                            icon.can_target = true;
+                        } else {
+                            icon.can_target = false;
                         }
                         icon.visible = true;
                         ((Gtk.Box)parent_widget).append(icon);
@@ -233,6 +239,9 @@ namespace BobLauncher {
                         if (desc.fragment_func != null) {
                             label.set_data("fragment", desc);
                             label.add_css_class("clickable");
+                            label.can_target = true;
+                        } else {
+                            label.can_target = false;
                         }
                         label.visible = true;
                     } else {
@@ -254,6 +263,9 @@ namespace BobLauncher {
                         if (desc.fragment_func != null) {
                             label.set_data("fragment", desc);
                             label.add_css_class("clickable");
+                            label.can_target = true;
+                        } else {
+                            label.can_target = false;
                         }
                         label.visible = true;
                         ((Gtk.Box)parent_widget).append(label);
@@ -265,6 +277,8 @@ namespace BobLauncher {
                         unowned Gtk.Box container = (Gtk.Box)get_or_create_widget(FragmentType.CONTAINER, desc.orientation, desc.spacing);
                         container.css_classes = { desc.css_class };
                         container.visible = true;
+                        container.set_data("fragment", null);
+
 
                         // Clear existing children in reused containers
                         unowned Gtk.Widget? child = container.get_first_child();
@@ -280,14 +294,26 @@ namespace BobLauncher {
                                 process_description(child_desc, container);
                             }
                         }
+
+                        if (desc.fragment_func != null) {
+                            container.set_data("fragment", desc);
+                            container.add_css_class("clickable");
+                        }
                     } else {
                         // For nested containers, create new widgets directly
                         var container = new Gtk.Box(desc.orientation, desc.spacing) {
                             hexpand = true,
                             vexpand = true,
                         };
+
                         container.css_classes = { desc.css_class };
                         container.visible = true;
+
+                        if (desc.fragment_func != null) {
+                            container.set_data("fragment", desc);
+                            container.add_css_class("clickable");
+                        }
+
                         ((Gtk.Box)parent_widget).append(container);
 
                         // Process children recursively

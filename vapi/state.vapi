@@ -27,6 +27,9 @@ namespace BobLauncher {
         [CCode (cname = "state_current_provider")]
         public static unowned Hash.HashSet current_provider();
 
+        [CCode (cname = "state_get_query")]
+        public static unowned string get_query();
+
         [CCode (cname = "state_selected_plugin")]
         public static unowned Match? selected_plugin();
 

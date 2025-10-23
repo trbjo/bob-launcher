@@ -4,6 +4,9 @@ namespace BobLauncher {
     public const string BOB_LAUNCHER_OBJECT_PATH = "/io/github/trbjo/bob/launcher";
 
     namespace App {
+        private const string socket_addr = "io.github.trbjo.bob.launcher";
+        private const string socket_addr_sync = "io.github.trbjo.bob.launcher.sync";
+
         private const int SIGTERM = 15;
         private const int SIGINT = 2;
 
@@ -19,10 +22,6 @@ namespace BobLauncher {
             }
 
             launcher.launch_uris_internal(uris, env);
-        }
-
-        private static void open_settings() {
-            // stub
         }
 
         private static void quit() {
@@ -76,9 +75,6 @@ namespace BobLauncher {
         private static void select_plugin(LauncherWindow win, string plugin, string? query = null) {
             win.set_visible(Controller.select_plugin(plugin, query));
         }
-
-        private const string socket_addr = "io.github.trbjo.bob.launcher";
-        private const string socket_addr_sync = "io.github.trbjo.bob.launcher.sync";
 
         private static void setup_socket_server(int listen_fd) {
             socket_service = new SocketService();

@@ -10,6 +10,9 @@
 #include "bonus.h"
 #include "config.h"
 
+#define SCORE_MIN -512
+
+
 static inline uint32_t utf8_to_codepoint(const char* str, int* advance) {
     const uint8_t* s = (const uint8_t*)str;
     uint8_t first = s[0];
@@ -163,14 +166,14 @@ static inline void match_row(const needle_info *needle,
 	const uint32_t needle_char = needle->chars[row];
 	const uint32_t needle_upper = needle->unicode_upper[row];
 
-	score_t prev_score = SCORE_MIN;
+	score_t prev_score = SCORE_BELOW_THRESHOLD;
 	score_t gap_score = i == n - 1 ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
 
 	score_t prev_M, prev_D;
 
 	for (int j = 0; j < m; j++) {
 		if (haystack->chars[j] == needle_char || haystack->chars[j] == needle_upper) {
-			score_t score = SCORE_MIN;
+			score_t score = SCORE_BELOW_THRESHOLD;
 			if (!i) {
 				score = (j * SCORE_GAP_LEADING) + haystack->bonus[j];
 			} else if (j) { /* i > 0 && j > 0*/
@@ -187,7 +190,7 @@ static inline void match_row(const needle_info *needle,
 		} else {
 			prev_D = last_D[j];
 			prev_M = last_M[j];
-			curr_D[j] = SCORE_MIN;
+			curr_D[j] = SCORE_BELOW_THRESHOLD;
 			curr_M[j] = prev_score = prev_score + gap_score;
 		}
 	}
@@ -195,27 +198,27 @@ static inline void match_row(const needle_info *needle,
 
 score_t match_score(const needle_info* needle, const char* haystack_str) {
 	if (*haystack_str == '\0') {
-		return SCORE_MIN;
+		return SCORE_BELOW_THRESHOLD;
 	}
 
 	if (needle->len == 0) {
-		return SCORE_NONE;
+		return SCORE_THRESHOLD;
 	}
 
 	haystack_info haystack;
-	if (!setup_haystack_and_match(needle, &haystack, haystack_str)) return SCORE_MIN;
+	if (!setup_haystack_and_match(needle, &haystack, haystack_str)) return SCORE_BELOW_THRESHOLD;
 	precompute_bonus(&haystack);
 
 	const int n = needle->len;
 	const int m = haystack.len;
 
-	if (m > MATCH_MAX_LEN || n > m) {
+	if (n > m) {
 		/*
 		 * Unreasonably large candidate: return no score
 		 * If it is a valid match it will still be returned, it will
 		 * just be ranked below any reasonably sized candidates
 		 */
-		return SCORE_MIN;
+		return SCORE_BELOW_THRESHOLD;
 	} else if (n == m) {
 		/* Since this method can only be called with a haystack which
 		 * matches needle. If the lengths of the strings are equal the
@@ -229,9 +232,6 @@ score_t match_score(const needle_info* needle, const char* haystack_str) {
 	 * M[][] Stores the best possible score at this position.
 	 */
 	score_t D[MATCH_MAX_LEN], M[MATCH_MAX_LEN];
-
-	// special case for i == 0
-	// match_first_row(needle, &haystack, last_D, last_M);
 
 	for (int i = 0; i < n; i++) {
 		match_row(needle, &haystack, i, D, M, D, M);

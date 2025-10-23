@@ -66,6 +66,8 @@ namespace BobLauncher {
 
             int view_tail = stop_index;
             int view_head = start_index;
+            unowned string current_q = State.get_query();
+            Levensteihn.StringInfo si = Levensteihn.StringInfo.create(current_q.strip());
 
             for (int i = 0; i < visible_size; i++) {
                 int abs_index;
@@ -84,7 +86,7 @@ namespace BobLauncher {
 
                 bool select = selected_index == abs_index;
                 int rel_index = abs_index - start_index;
-                row_pool[i].update(rel_index, abs_index, select, provider.event_id);
+                row_pool[i].update(si, rel_index, abs_index, select, provider.event_id);
             }
 
             sort_row_pool(provider.event_id);

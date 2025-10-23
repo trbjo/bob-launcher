@@ -13,8 +13,8 @@ typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 #define BITMAP_SIZE 256
 
 #define MAX_SHEETS 256          // 2^8
-#define RESULTS_PER_SHEET 512   // 2^9
-// max number of sheets = 256 * 512 = 131072
+#define SHEET_SIZE 512   // 2^9
+// max number of items = 256 * 512 = 131072
 
 #define HASH_BITS 32
 #define ITEM_BITS 9     // log2(512) = 9 bits for 512 items
@@ -38,14 +38,13 @@ typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
     (((uint64_t)(item_index) << ITEM_SHIFT) | \
      ((uint64_t)(sheet_index) << SHEET_SHIFT) | \
      ((uint64_t)(hash) << HASH_SHIFT) | \
-     ((uint64_t)((relevancy) + 1024) << RELEVANCY_SHIFT))
+     ((uint64_t)((int64_t)((relevancy) + 1024)) << RELEVANCY_SHIFT))
 
 #define ITEM_IDX(packed) (((packed) >> ITEM_SHIFT) & ((1ULL << ITEM_BITS) - 1))
 #define SHEET_IDX(packed) (((packed) >> SHEET_SHIFT) & ((1ULL << SHEET_BITS) - 1))
 #define IDENTITY(packed) (((packed) >> HASH_SHIFT) & 0xFFFFFFFF)
 #define RELEVANCY(packed) ((int16_t)(((packed) >> RELEVANCY_SHIFT) & 0x7FFF) - 1024)
 
-#define DUPLICATE_FLAG (1ULL << 63)
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 
 extern _Atomic uintptr_t g_match_funcs[MAX_FUNC_SLOTS];
@@ -78,23 +77,22 @@ typedef struct MatchNode {
 } MatchNode;
 
 typedef struct ResultSheet {
-    uint64_t match_pool[RESULTS_PER_SHEET];
+    uint64_t match_pool[SHEET_SIZE];
+    uint64_t duplicate_bits[SHEET_SIZE / 64];
     size_t size;
     int global_index;
 } __attribute__((aligned(8))) ResultSheet;
 
 typedef struct ResultContainer {
-    // Group 1: Thread-local working data
-    ResultSheet* current_sheet;
+    uint64_t* items;
+    size_t size;
+    size_t items_capacity;
     ResultSheet** sheet_pool;
 
-    // Group 2: Queue pointer
-    ResultSheet*** read;
+    ResultSheet* current_sheet;
 
-    // Group 3: Item data
-    uint64_t* items;
-    size_t items_capacity;
-    size_t size;
+    // Queue pointer
+    ResultSheet*** read;
 
     // Group 4: Query-related data
     needle_info* string_info;
@@ -129,7 +127,6 @@ bool result_container_insert(ResultContainer* container, uint32_t hash, int16_t 
 const char* result_container_get_query(ResultContainer* container);
 
 #define result_container_has_match(container, haystack) query_has_match(((ResultContainer*)container)->string_info, haystack)
-#define result_container_match_score_with_offset(container, haystack, offset) match_score(((ResultContainer*)container)->string_info, haystack + offset)
 #define result_container_match_score(container, haystack) match_score(((ResultContainer*)container)->string_info, haystack)
 #define result_container_match_score_spaceless(container, haystack) match_score(((ResultContainer*)container)->string_info_spaceless, haystack)
 
@@ -141,4 +138,3 @@ extern int events_ok(int event_id);
 
 #define result_container_add_lazy(container, hash, relevancy, func, factory_user_data, destroy_notify) \
     result_container_insert(container, hash, relevancy, func, factory_user_data, destroy_notify)
-

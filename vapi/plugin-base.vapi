@@ -36,9 +36,6 @@ namespace BobLauncher {
         [CCode (vfunc_name = "on_setting_changed")]
         public virtual void on_setting_changed(string key, GLib.Variant value);
 
-        [CCode (vfunc_name = "handle_base_settings")]
-        protected virtual bool handle_base_settings(GLib.Settings settings, string key);
-
         [CCode (vfunc_name = "find_for_match")]
         public virtual void find_for_match(Match match, ActionSet rs);
 

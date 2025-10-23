@@ -6,6 +6,9 @@ namespace BobLauncher {
         public static WidthResizeHandle? width_handle;
         private static unowned AppSettings? appsettings;
         private static GLib.Settings? settings;
+        private Graphene.Rect inner;
+        private Gsk.Transform height_transform;
+        private Gsk.Transform width_transform;
 
         public bool client_side_shadow { get; set; }
         public bool inhibit_system_shortcuts { get; set; }
@@ -93,10 +96,6 @@ namespace BobLauncher {
             }, GLib.Priority.LOW);
         }
 
-        Graphene.Rect inner;
-        Gsk.Transform height_transform;
-        Gsk.Transform width_transform;
-
         protected override void size_allocate(int base_width, int base_height, int baseline) {
             base.size_allocate(base_width, base_height, baseline);
 
@@ -121,6 +120,7 @@ namespace BobLauncher {
             surf.restore_system_shortcuts();
             base.hide();
             State.reset();
+            Controller.reset();
         }
 
         internal void ensure_surface() {

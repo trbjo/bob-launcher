@@ -12,4 +12,5 @@ namespace Controller {
     internal static void handle_key_press(uint keyval, Gdk.ModifierType state);
     internal static void handle_focus_enter();
     internal static void handle_focus_leave();
+    internal static void reset();
 }

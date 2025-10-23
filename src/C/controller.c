@@ -64,6 +64,10 @@ typedef struct {
     bool should_hide;
 } ExecuteData;
 
+static unsigned int error_timeout = 0U;
+static unsigned int execute_timeout = 0U;
+static atomic_int is_executing = 0;
+
 bool controller_select_plugin(const char* plugin, const char* query) {
     if (!state_is_in_initial_state()) return false;
 
@@ -126,14 +130,88 @@ void controller_handle_focus_leave() {
     gtk_widget_set_cursor((GtkWidget*)bob_launcher_app_main_win, NULL);
 }
 
+static gboolean remove_error_class(gpointer user_data) {
+    error_timeout = 0U;
+    gtk_widget_remove_css_class((GtkWidget*)bob_launcher_app_main_win, "execute-error");
+    return false;
+}
+
+static void remove_is_executing() {
+    if (execute_timeout != 0U) {
+        g_source_remove(execute_timeout);
+        execute_timeout = 0;
+    } else {
+        gtk_widget_remove_css_class((GtkWidget*)bob_launcher_app_main_win, "executing");
+    }
+    atomic_store(&is_executing, 0);
+    gtk_widget_set_can_target ((GtkWidget*) bob_launcher_app_main_win, true);
+}
+
 static bool bob_launcher_app_hide_window(void* user_data) {
-    gtk_widget_set_visible ((GtkWidget*) bob_launcher_app_main_win, false);
+    gtk_widget_set_visible((GtkWidget*) bob_launcher_app_main_win, false);
+    remove_is_executing();
     return false;
 }
 
 static bool state_update_layout_idle(void* user_data) {
-    state_update_layout ((BobLauncherSearchingFor) CURRENT_CATEGORY);
+    remove_is_executing();
+    state_update_layout(CURRENT_CATEGORY);
     return false;
+}
+
+static gboolean add_execute_class(gpointer user_data) {
+    execute_timeout = 0U;
+    gtk_widget_add_css_class((GtkWidget*)bob_launcher_app_main_win, "executing");
+    return false;
+}
+
+
+void controller_reset() {
+    remove_is_executing();
+}
+
+static void add_is_executing() {
+    atomic_store(&is_executing, 1);
+
+    if (execute_timeout != 0U) return;
+
+    gtk_widget_set_can_target ((GtkWidget*) bob_launcher_app_main_win, false);
+    execute_timeout = g_timeout_add_full(
+        G_PRIORITY_DEFAULT,
+        100,
+        add_execute_class,
+        NULL,
+        NULL
+    );
+}
+
+static bool handle_error_ui(void* user_data) {
+    remove_is_executing();
+
+    if (error_timeout == 0U) {
+        gtk_widget_add_css_class((GtkWidget*)bob_launcher_app_main_win, "execute-error");
+    } else {
+        g_source_remove(error_timeout);
+    }
+    error_timeout = g_timeout_add_full(
+        G_PRIORITY_DEFAULT,
+        1000,
+        remove_error_class,
+        NULL,
+        NULL
+    );
+    return false;
+}
+
+
+static void cleanup_exec(void* data) {
+    ExecuteData* exec_data = (ExecuteData*)data;
+
+    if (exec_data->source) g_object_unref(exec_data->source);
+    if (exec_data->action) g_object_unref(exec_data->action);
+    if (exec_data->target) g_object_unref(exec_data->target);
+
+    free(exec_data);
 }
 
 static void* controller_execute_async(void* data) {
@@ -142,13 +220,16 @@ static void* controller_execute_async(void* data) {
     BobLauncherAction* action = (BobLauncherAction*)exec_data->action;
     bool result = bob_launcher_action_execute(action, exec_data->source, exec_data->target);
 
-    if (result && exec_data->should_hide) {
+    if (!atomic_load(&is_executing)) return NULL;
+
+    if (!result) {
+        g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)handle_error_ui, NULL, NULL);
+    } else if (exec_data->should_hide) {
         g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)bob_launcher_app_hide_window, NULL, NULL);
     } else {
         g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc)state_update_layout_idle, NULL, NULL);
     }
 
-    free(exec_data);
     return NULL;
 }
 
@@ -185,21 +266,27 @@ void controller_execute(bool should_hide) {
         state_update_provider(bob_launcher_SEARCHING_FOR_TARGETS, result_provider, 0);
         state_update_layout(bob_launcher_SEARCHING_FOR_TARGETS);
         bob_launcher_query_container_adjust_label_for_query("", 0);
+        return; // don't execute with an empty target
     }
 
     BobLauncherMatch* target = state_selected_target();
     if (target == NULL && BOB_LAUNCHER_IS_ACTION_TARGET(action)) return;
 
+    if (state_sf == bob_launcher_SEARCHING_FOR_TARGETS && strlen(state_get_query()) <= 0) {
+        return; // disallow empty target strings
+    }
+
     // Prepare data for async execution
     ExecuteData* exec_data = (ExecuteData*)malloc(sizeof(ExecuteData));
     if (exec_data == NULL) return;
 
-    exec_data->source = source;
-    exec_data->action = action;
-    exec_data->target = target;
+    exec_data->source = source ? g_object_ref(source) : NULL;
+    exec_data->action = action ? g_object_ref(action) : NULL;
+    exec_data->target = target ? g_object_ref(target) : NULL;
     exec_data->should_hide = should_hide;
 
-    thread_pool_run((TaskFunc)controller_execute_async, exec_data, NULL);
+    add_is_executing();
+    thread_pool_run((TaskFunc)controller_execute_async, exec_data, cleanup_exec);
 }
 
 static gboolean search_update_timeout_callback(gpointer user_data) {
@@ -249,7 +336,7 @@ void controller_start_search(const char* search_query) {
         case bob_launcher_SEARCHING_FOR_PLUGINS: {
             HashSet* result_provider = data_sink_search_for_plugins(search_query, event_id);
             state_update_provider(bob_launcher_SEARCHING_FOR_PLUGINS, result_provider, 0);
-            state_update_layout(CURRENT_CATEGORY);
+            state_update_layout(bob_launcher_SEARCHING_FOR_PLUGINS);
             break;
         }
 
@@ -258,7 +345,7 @@ void controller_start_search(const char* search_query) {
             if (plg == NULL && strcmp(search_query, "") == 0) {
                 HashSet* empty_provider = state_empty_provider(event_id);
                 state_update_provider(bob_launcher_SEARCHING_FOR_SOURCES, empty_provider, 0);
-                state_update_layout(CURRENT_CATEGORY);
+                state_update_layout(bob_launcher_SEARCHING_FOR_SOURCES);
                 return;
             }
 
@@ -277,7 +364,7 @@ void controller_start_search(const char* search_query) {
                 HashSet* rs_array = data_sink_search_for_actions(search_query, source, event_id);
                 state_update_provider(bob_launcher_SEARCHING_FOR_ACTIONS, rs_array, 0);
             }
-            state_update_layout(CURRENT_CATEGORY);
+            state_update_layout(bob_launcher_SEARCHING_FOR_ACTIONS);
             break;
         }
 
@@ -285,7 +372,7 @@ void controller_start_search(const char* search_query) {
             BobLauncherMatch* action = state_selected_action();
             HashSet* target_provider = data_sink_search_for_targets(search_query, action, event_id);
             state_update_provider(bob_launcher_SEARCHING_FOR_TARGETS, target_provider, 0);
-            state_update_layout(CURRENT_CATEGORY);
+            state_update_layout(bob_launcher_SEARCHING_FOR_TARGETS);
             break;
         }
 
@@ -309,6 +396,10 @@ static void controller_clipboard_callback(GdkClipboard* clipboard,
 }
 
 bool controller_handle_command(int command) {
+    if (atomic_load(&is_executing) && command < KEYBINDINGS_COMMAND_QUIT) {
+        return true;
+    }
+
     switch (command) {
         case KEYBINDINGS_COMMAND_ACTIVATE:
             gtk_widget_set_visible((GtkWidget*)bob_launcher_app_main_win, !gtk_widget_get_visible((GtkWidget*)bob_launcher_app_main_win));
@@ -397,7 +488,7 @@ bool controller_handle_command(int command) {
             if (relative_index >= bob_launcher_result_box_visible_size) return true;
             BobLauncherMatchRow* row = bob_launcher_result_box_row_pool[relative_index];
             controller_goto_match_abs(row->abs_index);
-            state_update_layout ((BobLauncherSearchingFor) CURRENT_CATEGORY);
+            state_update_layout(CURRENT_CATEGORY);
             controller_execute(true);
             return true;
         }
@@ -407,10 +498,27 @@ bool controller_handle_command(int command) {
             state_update_layout(CURRENT_CATEGORY);
             return true;
 
+        case KEYBINDINGS_NEXT_PANE_1:
+        case KEYBINDINGS_NEXT_PANE_2:
+        case KEYBINDINGS_NEXT_PANE_3:
+        case KEYBINDINGS_NEXT_PANE_4:
+        case KEYBINDINGS_NEXT_PANE_5:
+        case KEYBINDINGS_NEXT_PANE_6:
+        case KEYBINDINGS_NEXT_PANE_7:
+        case KEYBINDINGS_NEXT_PANE_8:
+        case KEYBINDINGS_NEXT_PANE_9:
+        case KEYBINDINGS_NEXT_PANE_10:
         case KEYBINDINGS_COMMAND_NEXT_PANE: {
             if (state_is_in_initial_state()) {
                 state_change_category(bob_launcher_SEARCHING_FOR_PLUGINS);
             } else {
+                if (command != KEYBINDINGS_COMMAND_NEXT_PANE) {
+                    int relative_index = command - KEYBINDINGS_NEXT_PANE_1;
+                    if (relative_index >= bob_launcher_result_box_visible_size) return true;
+                    BobLauncherMatchRow* row = bob_launcher_result_box_row_pool[relative_index];
+                    controller_goto_match_abs(row->abs_index);
+                }
+
                 BobLauncherMatch* cm = controller_selected_match();
                 int direction = 1;
 
@@ -418,11 +526,15 @@ bool controller_handle_command(int command) {
                     (state_sf > bob_launcher_SEARCHING_FOR_SOURCES &&
                      (state_sf != bob_launcher_SEARCHING_FOR_ACTIONS ||
                       !BOB_LAUNCHER_IS_ACTION_TARGET(cm)))) {
-                    direction = -1;
+                    if (command != KEYBINDINGS_COMMAND_NEXT_PANE) {
+                        state_update_layout(CURRENT_CATEGORY);
+                        return true;
+                    } else {
+                        direction = -1;
+                    }
                 }
 
                 state_change_category(state_sf + direction);
-
             }
             return true;
         }
@@ -452,7 +564,6 @@ bool controller_handle_command(int command) {
         }
 
         case KEYBINDINGS_COMMAND_PREV_MATCH:
-
             controller_goto_match(-1);
             state_update_layout(CURRENT_CATEGORY);
             return true;
@@ -464,18 +575,6 @@ bool controller_handle_command(int command) {
 
         case KEYBINDINGS_COMMAND_QUIT:
             gtk_window_close ((GtkWindow*) bob_launcher_app_main_win);
-            return true;
-
-        case KEYBINDINGS_COMMAND_SHOW_SETTINGS:
-            bob_launcher_app_open_settings();
-            return true;
-
-        case KEYBINDINGS_COMMAND_SNEAK_PEEK:
-            bob_launcher_app_open_settings();
-            return true;
-
-        case KEYBINDINGS_COMMAND_SNEAK_PEEK_RELEASE:
-            bob_launcher_app_open_settings();
             return true;
 
         case KEYBINDINGS_COMMAND_INVALID_COMMAND:

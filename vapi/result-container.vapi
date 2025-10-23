@@ -17,9 +17,6 @@ namespace BobLauncher {
         [CCode (cname = "result_container_has_match")]
         public bool has_match (string? haystack);
 
-        [CCode (cname = "result_container_match_score_with_offset")]
-        public int16 match_score_with_offset (string? haystack, uint offset);
-
         [CCode (cname = "result_container_match_score")]
         public int16 match_score (string? haystack);
 

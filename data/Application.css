@@ -1,6 +1,8 @@
 @define-color shadow alpha(black, 0.6);
 @define-color inactive_shadow alpha(black, 0.3);
-@define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.8);
+@define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.9);
+@define-color attention_color mix(#ff3b30, @separator_color, 0.7);
+
 
 
 ensure-paint {
@@ -21,6 +23,10 @@ handle {
     transition-timing-function: ease-out;
     transition-duration: 150ms;
     transition-delay: 50ms;
+}
+
+#main-container.execute-error {
+    background: red;
 }
 
 window > handle.horizontal {
@@ -86,6 +92,18 @@ window#launcher match-row:selected {
     background: linear-gradient(to right, @base_transparent 4%, @separator_color 20%, @separator_color 80%, @base_transparent 96%);
 }
 
+window#launcher.client-side-border.execute-error #main-container {
+    border-color: @attention_color;
+}
+
+window#launcher.client-side-border.executing #main-container > * {
+    filter: saturate(0);
+}
+
+window#launcher.client-side-shadow.execute-error #main-container {
+    box-shadow: 0 4px 15px 4px #6000006A;
+}
+
 window#launcher.client-side-shadow #main-container {
     box-shadow: 0 4px 15px 4px #0000006A;
     margin: 30px 24px 30px 24px;
@@ -107,19 +125,19 @@ match-row {
 }
 
 #main-container {
-    transition-property: box-shadow, margin, border-radius;
+    transition-property: box-shadow, margin, border-radius, border-color;
     transition-timing-function: ease-out;
-    transition-duration: 100ms;
+    transition-duration: 120ms;
 }
 
 window#launcher text-image,
 window#launcher match-row-label {
-    transition-duration: 100ms;
+    transition-duration: 120ms;
 }
 
 window#launcher text-image,
 window#launcher match-row-label {
-    transition-property: opacity;
+    transition-property: opacity, filter;
 }
 
 window#launcher:backdrop text-image,
@@ -188,11 +206,11 @@ window#launcher:backdrop match-row-label {
 }
 
 #query-container:backdrop {
-    animation: backdrop-dim 100ms ease forwards;
+    animation: backdrop-dim 120ms ease forwards;
 }
 
 #query-container:not(:backdrop) {
-    animation: backdrop-undim 100ms ease forwards;
+    animation: backdrop-undim 120ms ease forwards;
 }
 
 #query-container.query-empty {
@@ -232,10 +250,6 @@ match-row match-row-label.description > box > box.flags-container {
     min-width: 30px;
 }
 
-match-row match-row-label.description > box > box {
-    margin-left: 2px;
-    margin-right: 2px;
-}
 match-row match-row-label.description > box > box > label {
     /*background: blue;*/
     margin-left: 2px;
@@ -268,14 +282,14 @@ match-row.horizontal match-row-label.description * {
     opacity: 0.6;
 }
 
-text-image.clickable:hover {
+.clickable:hover {
     box-shadow:
-    0 0.5px @theme_text_color,
-    0 -0.5px inset @theme_text_color;
+        0 0.5px @theme_text_color,
+        0 -0.5px inset @theme_text_color;
     border-color: @theme_text_color;
     border-style: solid;
 }
-match-row match-row-label.description label.clickable:hover {
+match-row match-row-label.description .clickable:hover {
     text-decoration: underline;
 }
 
@@ -370,7 +384,7 @@ window#launcher:not(.highlighted) match-row .shortcut {
     animation: none;
     background-color: @theme_text_color;
     min-width: 1.5px;
-    transition: opacity 100ms;
+    transition: opacity 120ms;
     opacity: 1.0;
 }
 

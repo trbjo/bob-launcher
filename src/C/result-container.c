@@ -61,13 +61,14 @@ static inline void hashset_add_sheet(ResultContainer* container) {
 
     sheet->global_index = global_index;
     sheet->size = 0;
+    memset(sheet->duplicate_bits, 0, sizeof(sheet->duplicate_bits));
 
     container->sheet_pool[global_index] = sheet;
     container->current_sheet = sheet;
 }
 
 static inline bool add_worker_sheet(ResultContainer* container) {
-    size_t required_items_capacity = container->size + RESULTS_PER_SHEET;
+    size_t required_items_capacity = container->size + SHEET_SIZE;
     if (required_items_capacity >= container->items_capacity) {
         uint64_t* items = realloc(container->items, required_items_capacity * sizeof(uint64_t));
         if (!items) return false;
@@ -111,6 +112,10 @@ void container_destroy(ResultContainer* container) {
 
     container->current_sheet = NULL;
     container->size = 0;
+
+    free_string_info(container->string_info);
+    free_string_info(container->string_info_spaceless);
+
     container->string_info = NULL;
     container->string_info_spaceless = NULL;
     container->query = NULL;
@@ -123,7 +128,7 @@ bool result_container_insert(ResultContainer* container, uint32_t hash, int16_t 
                           MatchFactory func, void* factory_user_data,
                           GDestroyNotify destroy_func) {
 
-    if (relevancy <= SCORE_MIN) {
+    if (relevancy <= SCORE_BELOW_THRESHOLD) {
         return false;
     }
     // clamp to int16_t bounds if necessary
@@ -133,7 +138,7 @@ bool result_container_insert(ResultContainer* container, uint32_t hash, int16_t 
                          adjusted_relevancy);
 
 
-    if (!container->current_sheet || container->current_sheet->size >= RESULTS_PER_SHEET) {
+    if (!container->current_sheet || container->current_sheet->size >= SHEET_SIZE) {
         if (!add_worker_sheet(container)) {
             return false;
         }

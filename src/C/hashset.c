@@ -9,44 +9,46 @@
 #include <string.h>
 #include "hashset.h"
 
-static inline bool is_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)] & DUPLICATE_FLAG;
-}
+extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 
 static inline uint64_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
     return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)];
 }
 
-static inline void mark_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)] |= DUPLICATE_FLAG;
+static inline bool is_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
+    size_t item_idx = ITEM_IDX(packed);
+    return sheet_pool[SHEET_IDX(packed)]->duplicate_bits[item_idx >> 6] & (1ULL << (item_idx & 63));
 }
 
-HashSet* hashset_create(const char* query, int event_id) {
+static inline void mark_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
+    size_t item_idx = ITEM_IDX(packed);
+    sheet_pool[SHEET_IDX(packed)]->duplicate_bits[item_idx >> 6] |= (1ULL << (item_idx & 63));
+}
+
+HashSet* hashset_create(int event_id) {
     HashSet* set = calloc(1, sizeof(HashSet));
     if (!set) return NULL;
 
-    set->query = strdup(query);
     set->event_id = event_id;
     atomic_init(&set->size, -1); // -1 is unfinished, 0 is no matches found
     atomic_init(&set->global_index_counter, 0);
     atomic_init(&set->write, 0);
     atomic_init(&set->read, set->unfinished_queue);
-
-    set->string_info = prepare_needle(set->query);
-    char* query_spaceless = replace(set->query, " ", "");
-    set->string_info_spaceless = prepare_needle(query_spaceless);
-    free(query_spaceless);
-
     return set;
 }
 
-ResultContainer* hashset_create_handle(HashSet* hashset, int16_t bonus) {
+ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus) {
     ResultContainer* container = calloc(1, sizeof(ResultContainer));
     if (!container) return NULL;
 
-    container->string_info = hashset->string_info;
-    container->string_info_spaceless = hashset->string_info_spaceless;
-    container->query = hashset->query;
+    container->query = query;
+
+    container->string_info = prepare_needle(query);
+    char* query_spaceless = replace(query, " ", "");
+    container->string_info_spaceless = prepare_needle(query_spaceless);
+    free(query_spaceless);
+
+
     container->event_id = hashset->event_id;
     container->sheet_pool = hashset->sheet_pool;
     container->global_index_counter = &hashset->global_index_counter;
@@ -91,13 +93,13 @@ static void merge_workers(ResultSheet** sheet_pool, ResultContainer* target, Res
 
     if (total_size > target->items_capacity) {
         // Since all matches end up in a single container, that container must end up
-        // at ≈ global_index_counter * RESULTS_PER_SHEET matches. To reduce
+        // at ≈ global_index_counter * SHEET_SIZE matches. To reduce
         // repetitive reallocations, we try to set the final size instead of the needed
         // size. the 2 > is simply a heuristic that seems to work well in practice.
         // Non-final containers very rarely end up merging more than that.
 
         int new_capacity = target->merges > 2 ?
-            atomic_load(target->global_index_counter) * RESULTS_PER_SHEET :
+            atomic_load(target->global_index_counter) * SHEET_SIZE :
             total_size;
 
         uint64_t* new_items = realloc(target->items, new_capacity * sizeof(uint64_t));
@@ -403,7 +405,7 @@ static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
 }
 
 static inline void return_sheet(HashSet* set, ResultContainer* container) {
-    if (container->current_sheet->size == RESULTS_PER_SHEET) return;
+    if (container->current_sheet->size == SHEET_SIZE) return;
 
     int pos = atomic_fetch_add(&set->write, 1);
     set->unfinished_queue[pos] = container->current_sheet;
@@ -506,9 +508,5 @@ void hashset_destroy(HashSet* set) {
         }
     }
     free(set->matches);
-
-    free(set->query);
-    free_string_info(set->string_info);
-    free_string_info(set->string_info_spaceless);
     free(set);
 }

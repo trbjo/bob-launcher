@@ -265,6 +265,10 @@ namespace BobLauncher {
             return _title;
         }
 
+        public override string get_icon_name() {
+            return IconCacheService.best_icon_name_for_mime_type(this.get_mime_type());
+        }
+
         private Description description;
 
         public override string get_description() {
@@ -276,10 +280,6 @@ namespace BobLauncher {
                 description = generate_description_for_file(si, this.filename, this.timestamp);
             }
             return description;
-        }
-
-        public override string get_icon_name() {
-            return IconCacheService.best_icon_name_for_mime_type(this.get_mime_type());
         }
 
         public static GenericArray<string> split_path_with_separators(string path) {
@@ -374,11 +374,25 @@ namespace BobLauncher {
             return _file;
         }
 
+        private FileInfo? _file_info = null;
+
+        public FileInfo get_file_info() {
+            if (_file_info == null) {
+                var f = get_file();
+                _file_info = f.query_info(SEARCH_FILE_ATTRIBUTES, FileQueryInfoFlags.NONE);
+            }
+            return _file_info;
+        }
+
         public string get_file_path() {
             if (_file == null) {
                 _file = File.new_for_path(this.filename);
             }
             return _file.get_path();
+        }
+
+        public bool is_directory() {
+            return get_file_info().get_file_type() == FileType.DIRECTORY;
         }
 
         public string get_uri() {
@@ -395,13 +409,13 @@ namespace BobLauncher {
                 if (_timestamp == null) {
                     var file = get_file();
                     try {
-                        FileInfo file_info = file.query_info(SEARCH_FILE_ATTRIBUTES, GLib.FileQueryInfoFlags.NONE);
-                        if (_timestamp == null && file_info.has_attribute(FileAttribute.TIME_ACCESS)) {
-                            _timestamp = file_info.get_access_date_time();
+                        FileInfo fi = get_file_info();
+                        if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_ACCESS)) {
+                            _timestamp = fi.get_access_date_time();
                         }
 
-                        if (_timestamp == null && file_info.has_attribute(FileAttribute.TIME_MODIFIED)) {
-                            _timestamp = file_info.get_modification_date_time();
+                        if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_MODIFIED)) {
+                            _timestamp = fi.get_modification_date_time();
                         }
 
                     } catch (Error e) {
@@ -423,8 +437,8 @@ namespace BobLauncher {
                 _mime_type = "application/x-unknown";
                 var f = get_file();
                 try {
-                    FileInfo file_info = f.query_info("standard::content-type", GLib.FileQueryInfoFlags.NONE);
-                    string content_type = file_info.get_content_type();
+                    FileInfo fi = get_file_info();
+                    string content_type = fi.get_content_type();
                     _mime_type = GLib.ContentType.get_mime_type(content_type);
                 } catch (Error e) {
                     debug("Failed to guess MIME type for URI %s: %s", this.filename, e.message);

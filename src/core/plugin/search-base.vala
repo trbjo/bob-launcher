@@ -30,23 +30,18 @@ namespace BobLauncher {
             }
         }
 
-        protected override bool handle_base_settings(GLib.Settings settings, string key) {
+        internal void handle_base_settings(string key, GLib.Variant value) {
             switch (key) {
             case "regex-match":
-                this.regex_match = settings.get_string("regex-match");
-                return true;
-            case "bonus":
-                base.bonus = (int16)settings.get_int("bonus");
-                return true;
+                this.regex_match = value.get_string();
+                break;
             case "enabled-in-default":
-                this.enabled_in_default_search = settings.get_boolean("enabled-in-default");
-                return true;
+                this.enabled_in_default_search = value.get_boolean();
+                break;
             case "update-interval":
-                uint user_value = settings.get_uint("update-interval");
+                uint user_value = value.get_uint32();
                 update_interval = ((user_value == 0) ? 0 : uint.max(500, user_value) * 1000);
-                return true;
-            default:
-                return false;
+                break;
             }
         }
 

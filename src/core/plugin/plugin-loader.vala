@@ -5,14 +5,14 @@ namespace PluginLoader {
     private delegate Type PluginInitFunc(TypeModule type_module);
 
     private static string[] plugin_dirs;
-    private static GenericArray<TypeModule> type_modules;
+    private static GenericArray<PluginModule> type_modules;
     private static GLib.HashTable<ulong, string> handler_ids;
     private static BobLauncher.AppSettings.Plugins settings;
 
-    internal static GenericArray<BobLauncher.SearchBase?> search_providers;
-    internal static GenericArray<unowned BobLauncher.SearchBase> default_search_providers;
+    internal static GenericArray<BobLauncher.SearchBase> search_providers;
+    internal static GenericArray<BobLauncher.SearchBase> default_search_providers;
     internal static GenericArray<BobLauncher.PluginBase> loaded_plugins;
-    internal static GenericArray<BobLauncher.PluginBase> enabled_plugins;
+    internal static GenericArray<unowned BobLauncher.PluginBase> enabled_plugins;
 
     private class PluginModule : TypeModule {
         public string path { get; construct; }
@@ -63,11 +63,11 @@ namespace PluginLoader {
             plugin_dirs[i + 1] = Path.build_filename(lib_path, BobLauncher.BOB_LAUNCHER_APP_ID);
         }
 
-        type_modules = new GenericArray<TypeModule>();
-        search_providers = new GenericArray<BobLauncher.SearchBase?>();
-        default_search_providers = new GenericArray<unowned BobLauncher.SearchBase>();
+        type_modules = new GenericArray<PluginModule>();
+        search_providers = new GenericArray<BobLauncher.SearchBase>();
+        default_search_providers = new GenericArray<BobLauncher.SearchBase>();
         loaded_plugins = new GenericArray<BobLauncher.PluginBase>();
-        enabled_plugins = new GenericArray<BobLauncher.PluginBase>();
+        enabled_plugins = new GenericArray<unowned BobLauncher.PluginBase>();
         handler_ids = new GLib.HashTable<ulong, string>(direct_hash, direct_equal);
 
         if (!Module.supported()) {
@@ -113,19 +113,19 @@ namespace PluginLoader {
             }
         }
 
-        foreach (var plugin in loaded_plugins) {
+        foreach (unowned var plugin in loaded_plugins) {
             string plugin_name = plugin.to_string();
             debug(@"Plugin name resolved: $plugin_name");
             ulong handler_id = initialize_plugin(plugin, settings.plugins.get(plugin_name));
             handler_ids.set(handler_id, plugin_name);
         }
 
-        foreach (var plugin in loaded_plugins) {
+        foreach (unowned var plugin in loaded_plugins) {
             plugin.notify["enabled"].connect(on_plugin_enabled_changed_wrapper);
             plugin.notify["search-providers"].connect(on_plugin_search_providers_changed_wrapper);
         }
 
-        foreach (var loaded_plugin in loaded_plugins) {
+        foreach (unowned var loaded_plugin in loaded_plugins) {
             on_plugin_enabled_changed(loaded_plugin);
         }
 
@@ -164,25 +164,22 @@ namespace PluginLoader {
         plg.description = get_settings_description(settings);
 
         var schema_source = GLib.SettingsSchemaSource.get_default();
-        var schema_id = settings.schema_id + ".settings";
+        var schema_id = settings.schema_id + ".custom-settings";
+
+        settings.bind("bonus", plg, "bonus", SettingsBindFlags.GET);
 
         if (schema_source.lookup(schema_id, true) != null) {
-            var specific_settings = settings.get_child("settings");
+            var custom_settings = settings.get_child("custom-settings");
 
-            foreach (string key in specific_settings.settings_schema.list_keys()) {
-                if (!plg.handle_base_settings(specific_settings, key)) {
-                    Variant value = specific_settings.get_value(key);
-                    plg.on_setting_changed(key, value);
-                }
+            foreach (string key in custom_settings.settings_schema.list_keys()) {
+                debug("key: %s, %s", key, plg.to_string());
+                Variant value = custom_settings.get_value(key);
+                plg.on_setting_changed(key, value);
             }
 
-
-            specific_settings.bind("bonus", plg, "bonus", SettingsBindFlags.GET);
-            specific_settings.changed.connect((key) => {
-                if (!plg.handle_base_settings(specific_settings, key)) {
-                    Variant value = specific_settings.get_value(key);
-                    plg.on_setting_changed(key, value);
-                }
+            custom_settings.changed.connect((_setting, key) => {
+                Variant value = _setting.get_value(key);
+                plg.on_setting_changed(key, value);
             });
         }
 
@@ -190,7 +187,15 @@ namespace PluginLoader {
         return settings.changed.connect((key) => settings_changed_handler(plg, settings, key));
     }
 
-    private static void settings_changed_handler(BobLauncher.PluginBase plg, GLib.Settings settings, string _) {
+    private static void settings_changed_handler(BobLauncher.PluginBase plg, GLib.Settings settings, string key) {
+        if (key != "enabled") {
+            foreach (unowned var sp in plg.search_providers) {
+                debug("calling");
+                sp.handle_base_settings(key, settings.get_value(key));
+            }
+            return;
+        }
+
         bool should_enable = settings.get_boolean("enabled");
         if (plg.enabled == should_enable) return;
 
@@ -209,8 +214,9 @@ namespace PluginLoader {
         }
     }
 
-    private static void add_providers(GenericArray<BobLauncher.SearchBase> providers) {
-        foreach (var provider in providers) {
+    private static void add_providers(BobLauncher.PluginBase plugin) {
+        unowned GenericArray<BobLauncher.SearchBase> providers = plugin.search_providers;
+        foreach (unowned var provider in providers) {
             search_providers.add(provider);
             provider.notify["shard-count"].connect(on_shard_count_changed);
             provider.notify["enabled-in-default-search"].connect(on_provider_default_search_changed);
@@ -222,19 +228,28 @@ namespace PluginLoader {
             debug(@"Added search provider: $(provider.get_title())");
         }
         search_providers.sort(shard_comp);
+
+        string settings_id = BobLauncher.BOB_LAUNCHER_APP_ID + ".plugins." + plugin.to_string();
+        var settings = new Settings(settings_id);
+        foreach (string key in settings.settings_schema.list_keys()) {
+            foreach (unowned var sp in plugin.search_providers) {
+                sp.handle_base_settings(key, settings.get_value(key));
+            }
+        }
     }
 
     private static void remove_providers(GenericArray<BobLauncher.SearchBase> providers) {
-        foreach (var provider in providers) {
-            search_providers.remove(provider);
+        foreach (unowned var provider in providers) {
             default_search_providers.remove(provider);
             provider.notify["shard-count"].disconnect(on_shard_count_changed);
             provider.notify["enabled-in-default-search"].disconnect(on_provider_default_search_changed);
+
+            search_providers.remove(provider);
             debug(@"Removed search provider: $(provider.get_title())");
         }
         var indices = new GenericArray<uint>();
         for (uint i = 0; i < search_providers.length; i++) {
-            unowned BobLauncher.SearchBase? sp = search_providers.get(i);
+            BobLauncher.SearchBase? sp = search_providers.get(i);
             if (sp == null) {
                 indices.add(i);
                 debug("plugin is null!");
@@ -248,7 +263,7 @@ namespace PluginLoader {
     }
 
     private static void on_provider_default_search_changed(GLib.Object obj, GLib.ParamSpec param) {
-        var provider = (BobLauncher.SearchBase)obj;
+        unowned var provider = (BobLauncher.SearchBase)obj;
         if (provider.enabled_in_default_search) {
             if (!default_search_providers.find(provider)) {
                 default_search_providers.add(provider);
@@ -269,7 +284,7 @@ namespace PluginLoader {
             if (!enabled_plugins.find(plugin)) {
                 enabled_plugins.add(plugin);
                 debug(@"Plugin '$(plugin.get_title())' has been enabled");
-                add_providers(plugin.search_providers);
+                add_providers(plugin);
             }
         } else {
             enabled_plugins.remove(plugin);
@@ -284,9 +299,9 @@ namespace PluginLoader {
 
     private static void on_plugin_search_providers_changed(BobLauncher.PluginBase plugin) {
         // Remove all existing providers from this plugin
-        foreach (var provider in search_providers) {
+        foreach (unowned var provider in search_providers) {
             bool found = false;
-            foreach (var p in plugin.search_providers) {
+            foreach (unowned var p in plugin.search_providers) {
                 if (p == provider) {
                     found = true;
                     break;
@@ -301,7 +316,8 @@ namespace PluginLoader {
         }
 
         if (!plugin.enabled) return;
-        add_providers(plugin.search_providers);
+        add_providers(plugin);
+
     }
 
     private static void on_shard_count_changed() {
@@ -325,26 +341,25 @@ namespace PluginLoader {
         debug("Shutting down plugin loader");
         handler_ids.foreach((key, value) => settings.plugins.get(value).disconnect(key));
 
-        search_providers.remove_range(0, search_providers.length);
-        search_providers = null;
-
         default_search_providers.remove_range(0, default_search_providers.length);
-        default_search_providers = null;
-
         enabled_plugins.remove_range(0, enabled_plugins.length);
-        enabled_plugins = null;
 
-        foreach (var plugin in loaded_plugins) {
+        foreach (unowned var plugin in loaded_plugins) {
+            plugin.notify["enabled"].disconnect(on_plugin_enabled_changed_wrapper);
+            plugin.notify["search-providers"].disconnect(on_plugin_search_providers_changed_wrapper);
+        }
+
+        search_providers.remove_range(0, search_providers.length);
+
+        foreach (unowned var plugin in loaded_plugins) {
             if (plugin.enabled) {
                 plugin.deactivate();
             }
             plugin.dispose();
+            plugin = null;
         }
 
-        loaded_plugins.remove_range(0, loaded_plugins.length);
-        loaded_plugins = null;
-
-        foreach (var module in type_modules) {
+        foreach (unowned var module in type_modules) {
             module.unload();
         }
     }

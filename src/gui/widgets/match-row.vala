@@ -15,6 +15,7 @@ namespace BobLauncher {
         private MatchRowLabel title;
         private RowNumber selected_row;
         private Gtk.Label shortcut;
+        private Gtk.Widget? icon_widget;
 
         private bool was_interesting;
         private Gtk.Orientation orientation;
@@ -245,10 +246,9 @@ namespace BobLauncher {
             queue_resize();
         }
 
-        internal void update_match() {
+        internal void update_match(Levensteihn.StringInfo si) {
             unowned Match? m = State.current_provider().get_match_at(abs_index);
             if (m == null) return;
-            unowned Levensteihn.StringInfo si = State.current_provider().string_info_spaceless;
 
             title_string = m.get_title();
             title_positions = new Highlight.Positions(si, title_string);
@@ -276,7 +276,18 @@ namespace BobLauncher {
                 description_positions = null;
             }
 
-            icon_name = m.get_icon_name();
+            if (icon_widget != null) {
+                icon_widget.unparent();
+                icon_widget = null;
+            }
+
+            if (m is IRichIcon) {
+                icon_widget = ((IRichIcon)m).get_rich_icon();
+                icon_widget.set_parent(this);
+            } else {
+                icon_name = m.get_icon_name();
+            }
+
             queue_draw();
         }
 
@@ -301,12 +312,12 @@ namespace BobLauncher {
             queue_draw();
         }
 
-        internal void update(int new_row, int new_abs_index, bool row_selected, int new_event) {
+        internal void update(Levensteihn.StringInfo si, int new_row, int new_abs_index, bool row_selected, int new_event) {
             int prev_abs_index = Atomics.exchange(ref abs_index, new_abs_index);
             int prev_event = Atomics.exchange(ref event_id, new_event);
 
             if (prev_event != new_event || prev_abs_index != new_abs_index) {
-                update_match();
+                update_match(si);
             }
 
             Gtk.StateFlags flag = row_selected ? Gtk.StateFlags.SELECTED : Gtk.StateFlags.NORMAL;
@@ -361,6 +372,7 @@ namespace BobLauncher {
 
             Gsk.Transform transform = new Gsk.Transform();
 
+
             selected_row.allocate(selected_row_width, height, baseline, transform.translate({ width - selected_row_width, 0 }));
             shortcut.allocate(shortcut_width, height, baseline, transform.translate({ width - shortcut_width - selected_row_width, 0 }));
 
@@ -379,6 +391,11 @@ namespace BobLauncher {
                 int _desc_width = int.min(width - icon_size - shortcut_width - selected_row_width, desc_width);
                 description.allocate(_desc_width, desc_height, desc_nat_baseline, transform.translate({ icon_size + _title_width, desc_label_shift }));
             }
+
+            if (icon_widget != null) {
+                transform = new Gsk.Transform().translate({0, ((float)(get_height() - icon_size)) / 2.0f});
+                icon_widget.allocate(icon_size, icon_size, -1, transform);
+            }
         }
 
         protected override void snapshot(Gtk.Snapshot snapshot) {
@@ -386,9 +403,14 @@ namespace BobLauncher {
             snapshot_child(description, snapshot);
             snapshot_child(selected_row, snapshot);
             snapshot_child(shortcut, snapshot);
-            snapshot.translate({0, (get_height() - icon_size) / 2});
-            unowned Gdk.Paintable p = IconCacheService.get_paintable_for_icon_name(icon_name, icon_size, scale_factor);
-            p.snapshot(snapshot, icon_size, icon_size);
+
+            if (icon_widget != null) {
+                snapshot_child(icon_widget, snapshot);
+            } else {
+                snapshot.translate({0, ((float)(get_height() - icon_size)) / 2.0f});
+                unowned Gdk.Paintable p = IconCacheService.get_paintable_for_icon_name(icon_name, icon_size, scale_factor);
+                p.snapshot(snapshot, icon_size, icon_size);
+            }
         }
     }
 }

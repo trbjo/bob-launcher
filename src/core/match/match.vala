@@ -37,11 +37,14 @@ namespace BobLauncher {
             this.children = null;
         }
 
-        public Description.container(string css_class = "", Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL) {
+        public Description.container(string css_class = "", Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL,
+                                     owned FragmentFunc? fragment_func = null) {
             this.text = "";
             this.css_class = css_class;
             this.fragment_type = FragmentType.CONTAINER;
-            this.fragment_func = null;
+            if (fragment_func != null) {
+                this.fragment_func = (owned)fragment_func;
+            }
             this.children = new GenericArray<Description>();
             this.orientation = orientation;
         }
@@ -73,6 +76,7 @@ namespace BobLauncher {
 
     public abstract class ActionTarget : Action {
         protected ActionTarget() { }
+        public abstract Match target_match(string query);
     }
 
     public abstract class Action : Match {

@@ -24,6 +24,8 @@ file_monitor = subproject('file-monitor')
 file_monitor_dep = file_monitor.get_variable('file_monitor_dep')
 file_monitor_vapi_dir = file_monitor.get_variable('file_monitor_dep').get_variable('vapi_dir')
 
+plugins_subproj = subproject('plugins')
+
 lib_sources = files(
     'src/api/interfaces.vala',
     'src/core/appsettings.vala',
@@ -70,6 +72,7 @@ c_sources = files(
     'src/C/data-sink-sources.c',
     'src/C/data-sink-plugins.c',
     'src/C/state.c',
+    'src/C/utf8-utils.c',
     'src/C/controller.c',
     'src/C/keybindings.c',
     'src/C/icon-cache-service.c',
@@ -99,65 +102,79 @@ inc_dirs = include_directories(
     'src/C',
 )
 
+base_deps = [
+    dependency('gtk4-layer-shell-0', version: '>= 0.6.0'),
+    dependency('gio-unix-2.0'),
+    dependency('glib-2.0', version: '>= 2.66.0'),
+    dependency('gmodule-2.0'),
+    dependency('gtk4', version: '>= 4.0.0'),
+    dependency('gtk4-wayland', version: '>= 4.0.0'),
+    dependency('wayland-client'),
+    meson.get_compiler('vala').find_library('posix'),
+    simple_keyboard_dep,
+    thread_manager_dep,
+    file_monitor_dep,
+    meson.get_compiler('c').find_library('m'),
+    meson.get_compiler('c').find_library('dbus-1'),
+    meson.get_compiler('c').find_library('xxhash'),
+]
+
+# Base C args
+base_c_args = [
+    '-march=native',
+    '-D_GNU_SOURCE',
+    '-fno-plt',
+    '-fno-stack-protector',
+    '-funroll-loops',
+    '-ffast-math',
+    '-fno-plt',
+    '-ftree-vectorize',
+    '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
+    '-I/usr/include/xxhash',
+    '-include', join_paths(meson.current_source_dir(), 'src/C/xxhash-override.h'),
+    '-I/usr/include/dbus-1.0',
+    '-I/usr/lib/dbus-1.0/include'
+]
+
+# Base Vala args
+base_vala_args = [
+    '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
+    '--pkg', 'c-bindings',
+    '--pkg', 'state',
+    '--pkg', 'systemd-service',
+    '--pkg', 'constants',
+    '--pkg', 'systemd-scope',
+    # '--pkg', 'plugin-base',
+    '--pkg', 'dbus-scope-monitor',
+    '--pkg', 'keybindings',
+    '--pkg', 'icon-cache-service',
+    '--pkg', 'controller',
+    '--pkg', 'result-container',
+    '--pkg', 'data-sink-actions',
+    '--pkg', 'levensteihn',
+    '--pkg', 'string-utils',
+    '--pkg', 'highlight',
+    '--pkg', 'hashset',
+    '--vapidir=' + file_monitor_vapi_dir,
+    '--pkg', 'file-monitor',
+    '--vapidir=' + thread_manager_vapi_dir,
+    '--pkg', 'thread-manager',
+    '--vapidir=' + simple_keyboard_vapi_dir,
+    '--pkg', 'simple-keyboard'
+]
+
+# Build final sources, dependencies, and arguments
+all_sources = lib_sources + c_sources + gresources
+all_deps = base_deps
+all_c_args = base_c_args
+all_vala_args = base_vala_args
+
 launcher_lib = shared_library('bob-launcher',
-    lib_sources + c_sources + gresources,
-    dependencies: [
-        dependency('gtk4-layer-shell-0', version: '>= 0.6.0'),
-        dependency('gio-unix-2.0'),
-        dependency('glib-2.0', version: '>= 2.66.0'),
-        dependency('gmodule-2.0'),
-        dependency('gtk4', version: '>= 4.0.0'),
-        dependency('gtk4-wayland', version: '>= 4.0.0'),
-        dependency('wayland-client'),
-        meson.get_compiler('vala').find_library('posix'),
-        simple_keyboard_dep,
-        thread_manager_dep,
-        file_monitor_dep,
-        meson.get_compiler('c').find_library('m'),
-        meson.get_compiler('c').find_library('dbus-1'),
-        meson.get_compiler('c').find_library('xxhash'),
-    ],
+    all_sources,
+    dependencies: all_deps,
     include_directories: inc_dirs,
-    c_args: [
-        '-march=native',
-        '-D_GNU_SOURCE',
-        '-fno-plt',              # For function pointer calls
-        '-fno-stack-protector',  # Remove stack protection overhead
-        '-funroll-loops',        # Unroll loops
-        '-ffast-math',           # Fast math operations
-        '-fno-plt',              # Better indirect calls
-        '-ftree-vectorize',      # Enable vectorization
-        '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
-        '-I/usr/include/xxhash',
-        '-include', join_paths(meson.current_source_dir(), 'src/C/xxhash-override.h'),
-        '-I/usr/include/dbus-1.0',
-        '-I/usr/lib/dbus-1.0/include'
-    ],
-    vala_args: [
-        '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
-        '--pkg', 'c-bindings',
-        '--pkg', 'state',
-        '--pkg', 'systemd-service',
-        '--pkg', 'constants',
-        '--pkg', 'systemd-scope',
-        # '--pkg', 'plugin-base',
-        '--pkg', 'dbus-scope-monitor',
-        '--pkg', 'keybindings',
-        '--pkg', 'icon-cache-service',
-        '--pkg', 'controller',
-        '--pkg', 'result-container',
-        '--pkg', 'data-sink-actions',
-        '--pkg', 'levensteihn',
-        '--pkg', 'string-utils',
-        '--pkg', 'highlight',
-        '--pkg', 'hashset',
-        '--vapidir=' + file_monitor_vapi_dir,
-        '--pkg', 'file-monitor',
-        '--vapidir=' + thread_manager_vapi_dir,
-        '--pkg', 'thread-manager',
-        '--vapidir=' + simple_keyboard_vapi_dir,
-        '--pkg', 'simple-keyboard'
-    ],
+    c_args: all_c_args,
+    vala_args: all_vala_args,
     install: false,
 )
 

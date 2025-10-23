@@ -1,9 +1,5 @@
 namespace BobLauncher {
     public abstract class PluginBase : Match {
-        internal Match make_match() {
-            return this;
-        }
-
         public int16 bonus { get; set; }
 
         private int _is_enabled = 0;
@@ -17,10 +13,10 @@ namespace BobLauncher {
             }
         }
 
-        private GenericArray<SearchBase>? _search_providers = null;
+        private GenericArray<SearchBase> _search_providers;
 
-        public virtual GenericArray<SearchBase> search_providers {
-            get {
+        public GenericArray<SearchBase> search_providers {
+            public get {
                 if (_search_providers == null) {
                     _search_providers = new GenericArray<SearchBase>();
                     if (this is SearchBase) {
@@ -29,7 +25,7 @@ namespace BobLauncher {
                 }
                 return _search_providers;
             }
-            set {
+            protected set {
                 _search_providers = value;
             }
         }
@@ -44,10 +40,6 @@ namespace BobLauncher {
 
         public virtual void on_setting_changed(string key, GLib.Variant value) {
             error("Handling setting: '%s' for plugin: %s, but plugin does not override `on_setting_changed`", key, this.title);
-        }
-
-        public virtual bool handle_base_settings(GLib.Settings settings, string key) {
-            return false;
         }
 
         internal string title;

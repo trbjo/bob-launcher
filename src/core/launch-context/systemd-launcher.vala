@@ -119,61 +119,48 @@ namespace BobLauncher {
                 try {
                     string? scheme = Uri.parse_scheme(uri);
                     if (scheme == null) {
-                        warning("unable to parse scheme for %s", uri);
+                        int colon_pos = uri.index_of(":");
+                        if (colon_pos > 0) {
+                            scheme = uri.substring(0, colon_pos);
+                        }
+                    }
+
+                    if (scheme == null) {
                         continue;
                     }
+
+                    AppInfo? app_info = null;
 
                     if (scheme == "file") {
                         var file = File.new_for_uri(uri);
 
                         var info = file.query_info(LAUNCH_FILE_ATTRIBUTES, FileQueryInfoFlags.NONE);
-                        AppInfo? app_info = AppInfo.get_default_for_type(info.get_content_type(), false) ??
+                        app_info = AppInfo.get_default_for_type(info.get_content_type(), false) ??
                                         AppInfo.get_default_for_type("text/plain", false); // treat unknowns as text
                         // if we don't even have a handler for "text/plain" warn and exit
-                        if (app_info == null) {
-                            warning("no handlers detected for %s, cannot open", uri);
-                            continue;
-                        }
-
-                        string name = app_info.get_name();
-                        var inner = app_infos.get(name);
-                        if (inner == null) {
-                            inner = new HashTable<AppInfo, GenericArray<string>>(direct_hash, direct_equal);
-                            var array = new GenericArray<string>();
-                            array.add(uri);
-                            inner.set(app_info, array);
-                            app_infos.set(name, inner);
-                        } else {
-                            if (inner.size() != 1) error ("size must be 1");
-                            inner.foreach((app_info, array) => {
-                                array.add(uri);
-                            });
-                        }
-
                     } else {
-                        var app_info = AppInfo.get_default_for_uri_scheme(scheme);
-                        if (app_info == null) {
-                            warning("no handlers detected for %s, cannot open", uri);
-                        }
-
-                        string name = app_info.get_name();
-                        var inner = app_infos.get(name);
-                        if (inner == null) {
-                            inner = new HashTable<AppInfo, GenericArray<string>>(direct_hash, direct_equal);
-                            var array = new GenericArray<string>();
-                            array.add(uri);
-                            inner.set(app_info, array);
-                            app_infos.set(name, inner);
-                        } else {
-                            if (inner.size() != 1) error ("size must be 1");
-                            inner.foreach((app_info, array) => {
-                                array.add(uri);
-                            });
-                        }
-
-                        return launch_with_uris(app_info, uris, null, env);
+                        app_info = AppInfo.get_default_for_uri_scheme(scheme);
                     }
 
+                    if (app_info == null) {
+                        warning("no handlers detected for %s, cannot open", uri);
+                        continue;
+                    }
+
+                    string name = app_info.get_name();
+                    var inner = app_infos.get(name);
+                    if (inner == null) {
+                        inner = new HashTable<AppInfo, GenericArray<string>>(direct_hash, direct_equal);
+                        var array = new GenericArray<string>();
+                        array.add(uri);
+                        inner.set(app_info, array);
+                        app_infos.set(name, inner);
+                    } else {
+                        if (inner.size() != 1) error ("size must be 1");
+                        inner.foreach((app_info, array) => {
+                            array.add(uri);
+                        });
+                    }
 
                 } catch (Error e) {
                     warning("Could not query file info: %s", e.message);
@@ -247,10 +234,6 @@ namespace BobLauncher {
             }
 
             return launch_wrapper_internal(app_info, argv, env, blocking);
-        }
-
-        private bool launch_wrapper(AppInfo app_info, string[] argv, string[]? env) {
-            return launch_wrapper_internal(app_info, argv, env, false) == 0;
         }
 
         private int launch_wrapper_internal(AppInfo app_info, string[] argv, string[]? env, bool blocking = false) {

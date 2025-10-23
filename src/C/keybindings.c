@@ -31,8 +31,7 @@ const struct {
     int command;
     const char* name;
 } command_map[] = {
-    { KEYBINDINGS_COMMAND_INVALID_COMMAND, "invalid-command" },
-    { KEYBINDINGS_COMMAND_ACTIVATE, "activate" },
+    { KEYBINDINGS_COMMAND_INVALID_COMMAND, "invalid-command" }, // == 0; must be first
     { KEYBINDINGS_COMMAND_CLEAR_SEARCH_OR_HIDE, "clear-search-or-hide" },
     { KEYBINDINGS_COMMAND_DELETE_CHAR_BACKWARD, "delete-char-backward" },
     { KEYBINDINGS_COMMAND_DELETE_CHAR_FORWARD, "delete-char-forward" },
@@ -46,8 +45,6 @@ const struct {
     { KEYBINDINGS_COMMAND_EXECUTE, "execute" },
     { KEYBINDINGS_COMMAND_EXECUTE_WITHOUT_HIDE, "execute-without-hide" },
     { KEYBINDINGS_COMMAND_FIRST_MATCH, "first-match" },
-    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH, "highlight-match" },
-    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_RELEASE, "highlight-match-release" },
     { KEYBINDINGS_COMMAND_LAST_MATCH, "last-match" },
     { KEYBINDINGS_COMMAND_MATCH_1, "match-1" },
     { KEYBINDINGS_COMMAND_MATCH_2, "match-2" },
@@ -60,6 +57,16 @@ const struct {
     { KEYBINDINGS_COMMAND_MATCH_9, "match-9" },
     { KEYBINDINGS_COMMAND_MATCH_10, "match-10" },
     { KEYBINDINGS_COMMAND_NEXT_MATCH, "next-match" },
+    { KEYBINDINGS_NEXT_PANE_1, "next-pane-1"},
+    { KEYBINDINGS_NEXT_PANE_2, "next-pane-2"},
+    { KEYBINDINGS_NEXT_PANE_3, "next-pane-3"},
+    { KEYBINDINGS_NEXT_PANE_4, "next-pane-4"},
+    { KEYBINDINGS_NEXT_PANE_5, "next-pane-5"},
+    { KEYBINDINGS_NEXT_PANE_6, "next-pane-6"},
+    { KEYBINDINGS_NEXT_PANE_7, "next-pane-7"},
+    { KEYBINDINGS_NEXT_PANE_8, "next-pane-8"},
+    { KEYBINDINGS_NEXT_PANE_9, "next-pane-9"},
+    { KEYBINDINGS_NEXT_PANE_10, "next-pane-10"},
     { KEYBINDINGS_COMMAND_NEXT_PANE, "next-pane" },
     { KEYBINDINGS_COMMAND_PAGE_DOWN, "page-down" },
     { KEYBINDINGS_COMMAND_PAGE_UP, "page-up" },
@@ -67,10 +74,11 @@ const struct {
     { KEYBINDINGS_COMMAND_PASTE_SELECTION, "paste-selection" },
     { KEYBINDINGS_COMMAND_PREV_MATCH, "prev-match" },
     { KEYBINDINGS_COMMAND_PREV_PANE, "prev-pane" },
+    // the following commands may be run when executing and the ui is otherwise "frozen"
     { KEYBINDINGS_COMMAND_QUIT, "quit" },
-    { KEYBINDINGS_COMMAND_SHOW_SETTINGS, "show-settings" },
-    { KEYBINDINGS_COMMAND_SNEAK_PEEK, "sneak-peek" },
-    { KEYBINDINGS_COMMAND_SNEAK_PEEK_RELEASE, "sneak-peek-release" },
+    { KEYBINDINGS_COMMAND_ACTIVATE, "activate" },
+    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH, "highlight-match" },
+    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_RELEASE, "highlight-match-release" },
     { 0, NULL }
 };
 

@@ -39,7 +39,7 @@ static gboolean debounced_cache_clear(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-static void on_file_change(const char* path, int event_type) {
+static void on_file_change(const char* path, int event_type, void* user_data) {
     if (debounce_timer_id != 0) {
         g_source_remove(debounce_timer_id);
     }
@@ -53,7 +53,7 @@ static void setup_directory_monitoring() {
         monitor = NULL;
     }
 
-    monitor = file_monitor_new(on_file_change);
+    monitor = file_monitor_new(on_file_change, NULL, NULL);
     if (monitor == NULL) {
         return;
     }

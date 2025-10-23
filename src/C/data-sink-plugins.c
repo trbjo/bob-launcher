@@ -1,12 +1,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <glib-object.h>
 #include "result-container.h"
 #include "hashset.h"
 
 typedef struct _BobLauncherSearchBase BobLauncherSearchBase;
 typedef struct _BobLauncherMatch BobLauncherMatch;
-typedef struct _BobLauncherUnknownMatch BobLauncherUnknownMatch;
+typedef struct _BobLauncherActionTarget BobLauncherActionTarget;
 
 typedef struct _GPtrArray {
     void** pdata;
@@ -22,8 +23,7 @@ extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 extern int bob_launcher_plugin_base_get_enabled(BobLauncherSearchBase* plugin);
 extern char* bob_launcher_plugin_base_to_string(BobLauncherSearchBase* plugin);
 extern BobLauncherMatch* bob_launcher_plugin_base_make_match(BobLauncherSearchBase* plugin);
-
-extern BobLauncherUnknownMatch* bob_launcher_unknown_match_new(const char* query);
+extern BobLauncherMatch* bob_launcher_action_target_target_match (BobLauncherActionTarget* self, const char* query);
 
 static int compare_ascending(const void* a, const void* b) {
     int idx_a = *(const int*)a;
@@ -88,13 +88,9 @@ int data_sink_find_plugin_by_name(const char* query) {
     return -1;
 }
 
-static BobLauncherMatch* plugin_make_match_wrapper(void* data) {
-    return bob_launcher_plugin_base_make_match((BobLauncherSearchBase*)data);
-}
-
 HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
-    HashSet* hsh = hashset_create(query, event_id);
-    ResultContainer* rc = hashset_create_default_handle(hsh);
+    HashSet* hsh = hashset_create(event_id);
+    ResultContainer* rc = hashset_create_default_handle(hsh, query);
     needle_info* si = prepare_needle(query);
 
     int length = vala_g_ptr_array_get_length(plugin_loader_search_providers);
@@ -118,7 +114,7 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
         int16_t score = match_score(si, title);
         free(title);
 
-        result_container_add_lazy_unique(rc, score, plugin_make_match_wrapper, plg, NULL);
+        result_container_add_lazy_unique(rc, score, (MatchFactory)g_object_ref, plg, NULL);
     }
 
     free(indices);
@@ -131,27 +127,29 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
 }
 
 struct unknown_match_data {
+    BobLauncherActionTarget* action_target;
     char* query;
 };
 
 static BobLauncherMatch* create_unknown_match(void* data) {
     struct unknown_match_data* umd = (struct unknown_match_data*)data;
-    return (BobLauncherMatch*)bob_launcher_unknown_match_new(umd->query);
+    return g_object_ref((BobLauncherMatch*)bob_launcher_action_target_target_match(umd->action_target, umd->query));
 }
 
 static void free_unknown_match_data(void* data) {
     struct unknown_match_data* umd = (struct unknown_match_data*)data;
+    g_object_unref(umd->action_target);
     free(umd->query);
     free(umd);
 }
 
-HashSet* data_sink_search_for_targets(const char* query, BobLauncherMatch* a, int event_id) {
-    HashSet* hsh = hashset_create(query, event_id);
-    ResultContainer* rc = hashset_create_default_handle(hsh);
+HashSet* data_sink_search_for_targets(const char* query, BobLauncherActionTarget* a, int event_id) {
+    HashSet* hsh = hashset_create(event_id);
+    ResultContainer* rc = hashset_create_default_handle(hsh, query);
 
     struct unknown_match_data* umd = malloc(sizeof(struct unknown_match_data));
     umd->query = strdup(query);
-
+    umd->action_target = g_object_ref(a);
     result_container_add_lazy_unique(rc, 100, create_unknown_match, umd, free_unknown_match_data);
 
     hashset_merge(hsh, rc);

@@ -14,3 +14,4 @@ void controller_handle_key_release(unsigned int keyval, unsigned int state);
 void controller_handle_key_press(unsigned int keyval, unsigned int state);
 void controller_handle_focus_enter();
 void controller_handle_focus_leave();
+void controller_reset();
