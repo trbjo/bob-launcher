@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/trbjo/bob-launcher-plugins
+revision = main
+depth = 1
