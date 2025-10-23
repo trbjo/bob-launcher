@@ -97,7 +97,6 @@ gresources = gnome.compile_resources(
 )
 
 inc_dirs = include_directories(
-    'src/core/search',
     'src/C/fzy',
     'src/C',
 )
