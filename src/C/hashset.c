@@ -245,7 +245,9 @@ static int merge_and_detect_duplicates(ResultContainer* container,
     return duplicates;
 }
 
-static int bitmap_item_insert(ResultContainer* target, uint64_t packed, uint32_t node_index) {
+static int bitmap_item_insert(ResultContainer* target,
+                              uint64_t packed,
+                              uint32_t node_index) {
     uint64_t item_id = IDENTITY(packed);
     if (!item_id) return 0; // item is unique
 

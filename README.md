@@ -6,7 +6,6 @@ https://github.com/user-attachments/assets/f157d529-9b19-46ac-add1-992e1e476a67
 
 Searches everything by default. No keywords needed, just type.
 
-
 ## Featured Plugins
 
 - **Snippets** — text and images

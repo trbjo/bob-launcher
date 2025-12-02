@@ -63,7 +63,6 @@ lib_sources = files(
 c_sources = files(
     'src/C/constants.h',
     'src/C/xxhash-override.h',
-    # 'src/C/plugin-base.c',
     'src/core/launch-context/access-appinfo-props.c',
     'src/core/launch-context/access-appinfo-props.h',
     'src/C/systemd-scope.c',
@@ -118,24 +117,18 @@ base_deps = [
     meson.get_compiler('c').find_library('xxhash'),
 ]
 
-# Base C args
-base_c_args = [
-    '-march=native',
-    '-D_GNU_SOURCE',
-    '-fno-plt',
-    '-fno-stack-protector',
-    '-funroll-loops',
-    '-ffast-math',
-    '-fno-plt',
-    '-ftree-vectorize',
+main_c_args = [
     '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
     '-I/usr/include/xxhash',
     '-include', join_paths(meson.current_source_dir(), 'src/C/xxhash-override.h'),
-    '-I/usr/include/dbus-1.0',
-    '-I/usr/lib/dbus-1.0/include'
 ]
 
-# Base Vala args
+dbus_c_args = [
+'-I/usr/include/dbus-1.0',
+'-I/usr/lib/dbus-1.0/include'
+]
+
+
 base_vala_args = [
     '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
     '--pkg', 'c-bindings',
@@ -162,33 +155,32 @@ base_vala_args = [
     '--pkg', 'simple-keyboard'
 ]
 
-# Build final sources, dependencies, and arguments
-all_sources = lib_sources + c_sources + gresources
-all_deps = base_deps
-all_c_args = base_c_args
-all_vala_args = base_vala_args
-
 launcher_lib = shared_library('bob-launcher',
-    all_sources,
-    dependencies: all_deps,
+    lib_sources + c_sources + gresources,
+    dependencies: base_deps,
     include_directories: inc_dirs,
-    c_args: all_c_args,
-    vala_args: all_vala_args,
+    c_args: main_c_args + dbus_c_args,
+    vala_args: base_vala_args,
+    install: true,
+    install_dir: get_option('libdir')
+)
+
+systemd_sources = files(
+    'src/C/systemd_service_impl.c',
+)
+
+libsystemd_service_impl = shared_library('systemd-service-impl',
+    systemd_sources,
+    dependencies: meson.get_compiler('c').find_library('dbus-1'),
+    include_directories: inc_dirs,
+    c_args: dbus_c_args,
     install: false,
 )
 
-stripped_lib = custom_target(
-    'stripped_lib',
-    input: launcher_lib,
-    output: 'launcher.bin',
-    command: get_option('buildtype') != 'debug' ? ['strip', '-o', '@OUTPUT@', '@INPUT@'] : ['cp', '@INPUT@', '@OUTPUT@'],
-    build_by_default: true
-)
-
-liblauncher_h = custom_target('liblauncher.h',
-    input: stripped_lib,
-    output: 'liblauncher.h',
-    command: ['xxd', '-i', '@INPUT@', '@OUTPUT@'],
+lib_systemd_h = custom_target('libsystemd_service_impl.h',
+    input: libsystemd_service_impl,
+    output: 'libsystemd_service_impl.h',
+    command: ['xxd', '-i', '-n', 'systemd_service_impl_bin', '@INPUT@', '@OUTPUT@'],
     build_by_default: true
 )
 
@@ -198,18 +190,12 @@ launcher_exe = executable('bob-launcher',
     'src/C/systemd_service_utils.h',
     'src/C/systemd_service_utils.c',
     'src/main.c',
-    liblauncher_h,
-    dependencies: [dependency('dbus-1')],
+    lib_systemd_h,
     include_directories: include_directories('src/C'),
-    install: false,
-)
-
-custom_target(
-    'strip-' + launcher_exe.name(),
-    input: launcher_exe,
-    output: launcher_exe.name() + '.stripped',
-    command: get_option('buildtype') != 'debug' ? ['strip', '-s', '@INPUT@', '-o', '@OUTPUT@'] : ['cp', '@INPUT@', '@OUTPUT@'],
-    build_by_default: true
+    install: true,
+    install_dir: get_option('bindir'),
+    install_rpath: join_paths(get_option('prefix'), get_option('libdir')),
+    build_rpath: meson.current_build_dir()
 )
 
 schema_dir = join_paths(meson.current_build_dir(), 'data', 'glib-2.0', 'schemas')

@@ -16,7 +16,6 @@ namespace BobLauncher {
         public Pango.AttrList? attributes;
 
         public Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL;
-        public const int spacing = 0;
 
         public Description(
                             string text,

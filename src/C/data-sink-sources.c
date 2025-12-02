@@ -99,6 +99,7 @@ static void search_prefer_insertion(void* user_data) {
     ResultContainer* rc = _search_worker_thread(user_data);
     if (rc != NULL) hashset_merge_prefer_insertion(((WorkerData*)user_data)->hashset, rc);
 }
+
 static void search_prefer_hash(void* user_data) {
     ResultContainer* rc = _search_worker_thread(user_data);
     if (rc != NULL) hashset_merge_prefer_hash(((WorkerData*)user_data)->hashset, rc);

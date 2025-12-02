@@ -71,7 +71,6 @@ namespace BobLauncher {
             uint8[] socket_array = SystemdServiceUtils.make_abstract_socket_name(socket_addr_sync);
             SystemdServiceUtils.signal_ready(socket_array);
         }
-
         private static void select_plugin(LauncherWindow win, string plugin, string? query = null) {
             win.set_visible(Controller.select_plugin(plugin, query));
         }

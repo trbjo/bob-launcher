@@ -435,14 +435,9 @@ namespace BobLauncher {
         public string get_mime_type() {
             if (_mime_type == null) {
                 _mime_type = "application/x-unknown";
-                var f = get_file();
-                try {
-                    FileInfo fi = get_file_info();
-                    string content_type = fi.get_content_type();
-                    _mime_type = GLib.ContentType.get_mime_type(content_type);
-                } catch (Error e) {
-                    debug("Failed to guess MIME type for URI %s: %s", this.filename, e.message);
-                }
+                FileInfo fi = get_file_info();
+                string content_type = fi.get_content_type();
+                _mime_type = GLib.ContentType.get_mime_type(content_type);
             }
             return _mime_type;
         }

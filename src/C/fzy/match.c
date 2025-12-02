@@ -313,6 +313,7 @@ score_t match_positions(const needle_info *needle, const char *haystack_str, int
 
 static void resize_if_needed(needle_info* info, int needed_size) {
 	if (needed_size >= info->capacity) {
+		int old_capacity = info->capacity;
 		int new_capacity = info->capacity * 2;
 		while (new_capacity <= needed_size) {
 			new_capacity *= 2;
@@ -322,14 +323,20 @@ static void resize_if_needed(needle_info* info, int needed_size) {
 		uint32_t* new_unicode_upper = realloc(info->unicode_upper, new_capacity * sizeof(uint32_t));
 
 		if (!new_chars || !new_unicode_upper) {
-			// Handle allocation failure
-			free(new_chars);  // safe to call with NULL
-			free(new_unicode_upper);
-			free(info->chars);
-			free(info->unicode_upper);
-			free(info);
+			if (new_chars && !new_unicode_upper) {
+				free(new_chars);
+			}
+			if (new_unicode_upper && !new_chars) {
+				free(new_unicode_upper);
+			}
+
+			info->chars = NULL;
+			info->unicode_upper = NULL;
 			return;
 		}
+
+		memset(new_chars + old_capacity, 0, (new_capacity - old_capacity) * sizeof(uint32_t));
+		memset(new_unicode_upper + old_capacity, 0, (new_capacity - old_capacity) * sizeof(uint32_t));
 
 		info->chars = new_chars;
 		info->unicode_upper = new_unicode_upper;

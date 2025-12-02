@@ -2,13 +2,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <dlfcn.h>
-#include <sys/mman.h>
 #include <stdlib.h>
 #include <limits.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <string.h>
-#include <ctype.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -16,7 +12,6 @@
 #include <stdint.h>
 #include <libgen.h>
 
-#include "liblauncher.h"
 #include "systemd_service.h"
 #include "systemd_service_utils.h"
 
@@ -45,10 +40,28 @@ static const char SOCKET_NAME[] = "\0io.github.trbjo.bob.launcher";
 static const char SYNC_SOCKET_NAME[] = "\0io.github.trbjo.bob.launcher.sync";
 static const char SERVICE_NAME[] = "io.github.trbjo.bob.launcher.service";
 
-static void add_env_var(const char *var) {
+static void cleanup_resources(void) {
+    if (remaining_args) {
+        free(remaining_args);
+        remaining_args = NULL;
+    }
+    for (int i = 0; i < g_env_vars.count; i++) {
+        free(g_env_vars.vars[i]);
+    }
+    free(g_env_vars.vars);
+    g_env_vars.vars = NULL;
+    g_env_vars.count = 0;
+    g_env_vars.capacity = 0;
+}
+
+static int add_env_var(const char *var) {
     if (g_env_vars.count >= g_env_vars.capacity) {
         int new_capacity = g_env_vars.capacity == 0 ? 8 : g_env_vars.capacity * 2;
-        g_env_vars.vars = realloc(g_env_vars.vars, new_capacity * sizeof(char*));
+        char **new_vars = realloc(g_env_vars.vars, new_capacity * sizeof(char*));
+        if (!new_vars) {
+            return -1;
+        }
+        g_env_vars.vars = new_vars;
         g_env_vars.capacity = new_capacity;
     }
 
@@ -64,6 +77,9 @@ static void add_env_var(const char *var) {
                 size_t key_len = equals - var;
                 size_t new_len = key_len + 1 + strlen(env_value) + 1;
                 char *expanded = malloc(new_len);
+                if (!expanded) {
+                    return -1;
+                }
                 memcpy(expanded, var, key_len);
                 expanded[key_len] = '=';
                 strcpy(expanded + key_len + 1, env_value);
@@ -73,6 +89,9 @@ static void add_env_var(const char *var) {
                 size_t key_len = equals - var;
                 size_t new_len = key_len + 2;  // key + '=' + '\0'
                 char *expanded = malloc(new_len);
+                if (!expanded) {
+                    return -1;
+                }
                 memcpy(expanded, var, key_len);
                 expanded[key_len] = '=';
                 expanded[key_len + 1] = '\0';
@@ -80,7 +99,11 @@ static void add_env_var(const char *var) {
             }
         } else {
             // Use verbatim value
-            g_env_vars.vars[g_env_vars.count++] = strdup(var);
+            char *dup = strdup(var);
+            if (!dup) {
+                return -1;
+            }
+            g_env_vars.vars[g_env_vars.count++] = dup;
         }
     } else {
         // No equals sign, look up the variable in current environment
@@ -89,16 +112,23 @@ static void add_env_var(const char *var) {
             // Found the variable, create KEY=VALUE string
             size_t new_len = strlen(var) + 1 + strlen(env_value) + 1;
             char *expanded = malloc(new_len);
+            if (!expanded) {
+                return -1;
+            }
             sprintf(expanded, "%s=%s", var, env_value);
             g_env_vars.vars[g_env_vars.count++] = expanded;
         } else {
             // Variable not found in environment, store as KEY= (empty value)
             size_t new_len = strlen(var) + 2;  // key + '=' + '\0'
             char *expanded = malloc(new_len);
+            if (!expanded) {
+                return -1;
+            }
             sprintf(expanded, "%s=", var);
             g_env_vars.vars[g_env_vars.count++] = expanded;
         }
     }
+    return 0;
 }
 
 static int parse_arguments(int argc, char **argv) {
@@ -126,7 +156,10 @@ static int parse_arguments(int argc, char **argv) {
     if (flag_environment) {
         int i = flag_environment + 1;
         while (i < argc && !(argv[i][0] == '-' && argv[i][1] == '-')) {
-            add_env_var(argv[i]);
+            if (add_env_var(argv[i]) < 0) {
+                fprintf(stderr, "Out of memory while parsing environment variables\n");
+                return -1;
+            }
             i++;
         }
     }
@@ -170,13 +203,6 @@ static int parse_arguments(int argc, char **argv) {
     }
 
     return 0;
-}
-
-static void cleanup_env_vars(void) {
-    for (int i = 0; i < g_env_vars.count; i++) {
-        free(g_env_vars.vars[i]);
-    }
-    free(g_env_vars.vars);
 }
 
 static int create_listening_socket(void) {
@@ -225,8 +251,11 @@ static int send_command_with_socket(int sock) {
     uint32_t pos = 4;
 
     const char *token = getenv("XDG_ACTIVATION_TOKEN");
-    uint8_t token_len = token ? strlen(token) : 0;
-    buffer[pos++] = token_len;
+    size_t token_len = token ? strlen(token) : 0;
+    if (token_len > 255) {
+        token_len = 255;  // Truncate to fit in protocol
+    }
+    buffer[pos++] = (uint8_t)token_len;
     if (token_len > 0) {
         memcpy(&buffer[pos], token, token_len);
         pos += token_len;
@@ -290,20 +319,20 @@ static int send_command_with_socket(int sock) {
 
 int main(int argc, char **argv) {
     if (parse_arguments(argc, argv) < 0) {
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
-    char name_copy[256];
-    strcpy(name_copy, argv[0]);
-    int as_service = strcmp(basename(name_copy), SERVICE_NAME) == 0;
+    // Check if running as service by comparing basename
+    const char *prog_name = strrchr(argv[0], '/');
+    prog_name = prog_name ? prog_name + 1 : argv[0];
+    int as_service = strcmp(prog_name, SERVICE_NAME) == 0;
 
     int sock = connect_abstract_blocking();
     if (sock >= 0) {
         int result = send_command_with_socket(sock);
         close(sock);
-        free(remaining_args);
-        cleanup_env_vars();
+        cleanup_resources();
         return result;
     }
 
@@ -311,7 +340,7 @@ int main(int argc, char **argv) {
         int sync_sock = create_sync_socket(SYNC_SOCKET_NAME, sizeof(SYNC_SOCKET_NAME) - 1);
         if (sync_sock < 0) {
             fprintf(stderr, "Failed to create sync socket\n");
-            cleanup_env_vars();
+            cleanup_resources();
             return 1;
         }
 
@@ -320,6 +349,12 @@ int main(int argc, char **argv) {
         if (g_env_vars.count > 0) {
             // Convert our env var list to NULL-terminated array
             env = malloc((g_env_vars.count + 1) * sizeof(char*));
+            if (!env) {
+                close(sync_sock);
+                fprintf(stderr, "Out of memory\n");
+                cleanup_resources();
+                return 1;
+            }
             for (int i = 0; i < g_env_vars.count; i++) {
                 env[i] = g_env_vars.vars[i];
             }
@@ -334,7 +369,7 @@ int main(int argc, char **argv) {
                 free(env);
             }
             fprintf(stderr, "Failed to start as systemd service\n");
-            cleanup_env_vars();
+            cleanup_resources();
             return 1;
         }
 
@@ -347,7 +382,7 @@ int main(int argc, char **argv) {
         if (wait_for_ready_signal(sync_sock) < 0) {
             close(sync_sock);
             fprintf(stderr, "Service failed to signal ready\n");
-            cleanup_env_vars();
+            cleanup_resources();
             return 1;
         }
         close(sync_sock);
@@ -358,18 +393,17 @@ int main(int argc, char **argv) {
             // reverse the hide
             int result = send_command_with_socket(sock);
             close(sock);
-            free(remaining_args);
-            cleanup_env_vars();
+            cleanup_resources();
             return result;
         }
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
     int listen_sock = create_listening_socket();
     if (listen_sock < 0) {
         fprintf(stderr, "Failed to create launcher socket\n");
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
@@ -377,7 +411,7 @@ int main(int argc, char **argv) {
     if (pid < 0) {
         perror("fork");
         close(listen_sock);
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
@@ -400,47 +434,17 @@ int main(int argc, char **argv) {
 
         int result = send_command_with_socket(sock);
         close(sock);
-        free(remaining_args);
-        cleanup_env_vars();
+        cleanup_resources();
         return result;
     }
 
     waitpid(pid, NULL, 0);
 
-    void *handle;
-    const char *debug_env = getenv("LAUNCHER_DEBUG");
-
-    if (debug_env && debug_env[0] != '0') {
-        const char *lib_path = "/tmp/libbob-launcher.so";
-        int fd = open(lib_path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
-        if (fd == -1 || write(fd, launcher_bin, launcher_bin_len) != launcher_bin_len) {
-            perror("write");
-            close(fd);
-            close(listen_sock);
-            cleanup_env_vars();
-            return 1;
-        }
-        close(fd);
-        handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
-    } else {
-        int fd = memfd_create("libbob-launcher", MFD_CLOEXEC);
-        if (fd == -1 || write(fd, launcher_bin, launcher_bin_len) != launcher_bin_len) {
-            perror("memfd/write");
-            close(fd);
-            close(listen_sock);
-            cleanup_env_vars();
-            return 1;
-        }
-        char fd_path[64];
-        snprintf(fd_path, sizeof(fd_path), "/proc/self/fd/%d", fd);
-        handle = dlopen(fd_path, RTLD_NOW | RTLD_GLOBAL);
-        close(fd);
-    }
-
+    void *handle = dlopen("libbob-launcher.so", RTLD_NOW | RTLD_GLOBAL);
     if (!handle) {
         fprintf(stderr, "Failed to load libbob-launcher.so: %s\n", dlerror());
         close(listen_sock);
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
@@ -449,7 +453,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Failed to find symbol run_launcher: %s\n", dlerror());
         dlclose(handle);
         close(listen_sock);
-        cleanup_env_vars();
+        cleanup_resources();
         return 1;
     }
 
@@ -457,7 +461,6 @@ int main(int argc, char **argv) {
 
     close(listen_sock);
     dlclose(handle);
-    free(remaining_args);
-    cleanup_env_vars();
+    cleanup_resources();
     return exit_code;
 }

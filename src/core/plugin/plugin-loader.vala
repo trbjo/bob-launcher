@@ -144,7 +144,6 @@ namespace PluginLoader {
         return "No Title provided";
     }
 
-
     private static string get_settings_description(GLib.Settings settings) {
         var schema = settings.settings_schema;
         if (schema != null) {
@@ -155,9 +154,6 @@ namespace PluginLoader {
         }
         return "No description provided";
     }
-
-
-
 
     public static ulong initialize_plugin(BobLauncher.PluginBase plg, GLib.Settings settings) {
         plg.title = get_plugin_summary(settings);
@@ -183,19 +179,22 @@ namespace PluginLoader {
             });
         }
 
-        settings_changed_handler(plg, settings, "enabled");
+        handle_enabled(plg, settings);
         return settings.changed.connect((key) => settings_changed_handler(plg, settings, key));
     }
 
     private static void settings_changed_handler(BobLauncher.PluginBase plg, GLib.Settings settings, string key) {
-        if (key != "enabled") {
+        if (key == "enabled") {
+            handle_enabled(plg, settings);
+        } else {
+            var value = settings.get_value(key);
             foreach (unowned var sp in plg.search_providers) {
-                debug("calling");
-                sp.handle_base_settings(key, settings.get_value(key));
+                sp.handle_base_settings(key, value);
             }
-            return;
         }
+    }
 
+    private static void handle_enabled(BobLauncher.PluginBase plg, GLib.Settings settings) {
         bool should_enable = settings.get_boolean("enabled");
         if (plg.enabled == should_enable) return;
 
@@ -276,7 +275,7 @@ namespace PluginLoader {
     }
 
     private static void on_plugin_enabled_changed_wrapper(GLib.Object obj, GLib.ParamSpec param) {
-        on_plugin_enabled_changed(((BobLauncher.PluginBase)obj));
+        on_plugin_enabled_changed((BobLauncher.PluginBase)obj);
     }
 
     private static void on_plugin_enabled_changed(BobLauncher.PluginBase plugin) {

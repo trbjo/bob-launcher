@@ -8,8 +8,8 @@
 
 typedef int16_t score_t;
 
-#define MATCH_MAX_LEN 512
-#define INITIAL_CAPACITY 32
+#define MATCH_MAX_LEN 1024
+#define INITIAL_CAPACITY 128
 
 #define SWAP(x, y, T) do { T SWAP = x; x = y; y = SWAP; } while (0)
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))

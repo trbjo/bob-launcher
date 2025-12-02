@@ -96,7 +96,7 @@ namespace BobLauncher {
             }
         }
 
-        private unowned Gtk.Widget get_or_create_widget(FragmentType type, Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL, int spacing = 0) {
+        private unowned Gtk.Widget get_or_create_widget(FragmentType type, Gtk.Orientation orientation = Gtk.Orientation.HORIZONTAL) {
             unowned Gtk.Widget widget;
             bool is_new_widget = false;
 
@@ -120,9 +120,8 @@ namespace BobLauncher {
                         // Update container properties
                         var box = (Gtk.Box)widget;
                         box.orientation = orientation;
-                        box.spacing = spacing;
                     } else {
-                        var box = new Gtk.Box(orientation, spacing) {
+                        var box = new Gtk.Box(orientation, 0) {
                             overflow = Gtk.Overflow.HIDDEN,
                             hexpand = true,
                             vexpand = true,
@@ -274,7 +273,7 @@ namespace BobLauncher {
 
                 case FragmentType.CONTAINER:
                     if (parent_widget == this) {
-                        unowned Gtk.Box container = (Gtk.Box)get_or_create_widget(FragmentType.CONTAINER, desc.orientation, desc.spacing);
+                        unowned Gtk.Box container = (Gtk.Box)get_or_create_widget(FragmentType.CONTAINER, desc.orientation);
                         container.css_classes = { desc.css_class };
                         container.visible = true;
                         container.set_data("fragment", null);
@@ -301,7 +300,7 @@ namespace BobLauncher {
                         }
                     } else {
                         // For nested containers, create new widgets directly
-                        var container = new Gtk.Box(desc.orientation, desc.spacing) {
+                        var container = new Gtk.Box(desc.orientation, 0) {
                             hexpand = true,
                             vexpand = true,
                         };

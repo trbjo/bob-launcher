@@ -102,4 +102,4 @@ const int8_t bonus_index[256] = {
 	ASSIGN_DIGIT(1)
 };
 
-#define COMPUTE_BONUS(last_ch, ch) (bonus_states[bonus_index[ch]][last_ch])
+#define COMPUTE_BONUS(last_ch, ch) (bonus_states[bonus_index[(unsigned char)(ch)]][(unsigned char)(last_ch)])
