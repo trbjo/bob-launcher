@@ -407,21 +407,13 @@ namespace BobLauncher {
         public GLib.DateTime timestamp {
             get {
                 if (_timestamp == null) {
-                    var file = get_file();
-                    try {
-                        FileInfo fi = get_file_info();
-                        if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_ACCESS)) {
-                            _timestamp = fi.get_access_date_time();
-                        }
+                    FileInfo fi = get_file_info();
+                    if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_ACCESS)) {
+                        _timestamp = fi.get_access_date_time();
+                    }
 
-                        if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_MODIFIED)) {
-                            _timestamp = fi.get_modification_date_time();
-                        }
-
-                    } catch (Error e) {
-                        debug("Failed to get timestamp for URI %s: %s", this.filename, e.message);
-                        _timestamp = new DateTime.now_utc();
-                        debug("Using current time as fallback for %s", file.get_basename());
+                    if (_timestamp == null && fi.has_attribute(FileAttribute.TIME_MODIFIED)) {
+                        _timestamp = fi.get_modification_date_time();
                     }
                 }
                 return _timestamp;
