@@ -9,6 +9,61 @@
 #include <string.h>
 #include "hashset.h"
 
+// Bit layout for MatchNode (uint64_t):
+// Bits 0-8:   item_index (9 bits)
+// Bits 9-16:  sheet_index (8 bits)
+// Bits 17-34: hash_high_18 (18 bits) - low 14 bits implicit from bitmap slot position
+// Bits 35-46: relevancy (12 bits, shifted right by 3 for 8x coarser granularity)
+// Bits 47-63: next (17 bits)
+
+#define NODE_NEXT_NULL ((1U << NODE_NEXT_BITS) - 1)  // 131071
+#define NODE_ITEM_INDEX_SHIFT 0
+#define NODE_SHEET_INDEX_SHIFT 9
+#define NODE_HASH_HIGH_SHIFT 17
+#define NODE_RELEVANCY_SHIFT 35
+#define NODE_NEXT_SHIFT 47
+
+#define NODE_ITEM_INDEX_BITS 9
+#define NODE_SHEET_INDEX_BITS 8
+#define NODE_HASH_HIGH_BITS 18
+#define NODE_RELEVANCY_BITS 12
+#define NODE_NEXT_BITS 17
+
+// Macros for opaque MatchNode access
+#define GET_NODE_NEXT(node_ptr) \
+    ((uint32_t)((*(node_ptr) >> NODE_NEXT_SHIFT) & ((1ULL << NODE_NEXT_BITS) - 1)))
+
+#define SET_NODE_NEXT(node_ptr, value) \
+    (*(node_ptr) = (*(node_ptr) & ~(((1ULL << NODE_NEXT_BITS) - 1) << NODE_NEXT_SHIFT)) | \
+                   (((uint64_t)(value) & ((1ULL << NODE_NEXT_BITS) - 1)) << NODE_NEXT_SHIFT))
+
+#define GET_NODE_MULTIPACK(node_ptr) (*(node_ptr))
+
+#define SET_NODE_MULTIPACK(node_ptr, packed) \
+    do { \
+        uint64_t item_idx = ITEM_IDX(packed); \
+        uint64_t sheet_idx = SHEET_IDX(packed); \
+        uint64_t hash = IDENTITY(packed); \
+        uint64_t hash_high = (hash) >> LOG2_BITMAP_BITS; \
+        int16_t relevancy = RELEVANCY(packed); \
+        uint64_t rel_packed = ((uint32_t)((relevancy) + 1024) >> 3) & ((1ULL << NODE_RELEVANCY_BITS) - 1); \
+        *(node_ptr) = ((uint64_t)(item_idx) << NODE_ITEM_INDEX_SHIFT) | \
+                      ((uint64_t)(sheet_idx) << NODE_SHEET_INDEX_SHIFT) | \
+                      ((uint64_t)(hash_high) << NODE_HASH_HIGH_SHIFT) | \
+                      ((uint64_t)(rel_packed) << NODE_RELEVANCY_SHIFT) | \
+                      ((uint64_t)((1ULL << NODE_NEXT_BITS) - 1) << NODE_NEXT_SHIFT); \
+    } while(0)
+
+// Helper macros for bitmap node operations
+#define GET_NODE_HASH_HIGH(node) \
+    (((node) >> NODE_HASH_HIGH_SHIFT) & ((1ULL << NODE_HASH_HIGH_BITS) - 1))
+
+#define GET_NODE_IDENTITY(node, slot_index) \
+    ((GET_NODE_HASH_HIGH(node) << LOG2_BITMAP_BITS) | (slot_index))
+
+#define GET_NODE_RELEVANCY(node) \
+    ((int16_t)(((((node) >> NODE_RELEVANCY_SHIFT) & ((1ULL << NODE_RELEVANCY_BITS) - 1)) << 3) - 1024))
+
 extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 
 static inline uint64_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
@@ -191,98 +246,139 @@ static int merge_and_detect_duplicates(ResultContainer* container,
                                                uint32_t* target_slot,
                                                uint32_t source_head) {
     int duplicates = 0;
-    uint32_t* indirect = target_slot;
     uint32_t t_current = *target_slot;
     uint32_t s_current = source_head;
+    uint32_t prev = NODE_NEXT_NULL;
 
-    while (t_current != UINT32_MAX && s_current != UINT32_MAX) {
+    while (t_current < NODE_NEXT_NULL && s_current < NODE_NEXT_NULL) {
         MatchNode* t_node = &container->all_nodes[t_current];
         MatchNode* s_node = &container->all_nodes[s_current];
 
-        uint64_t t_multipack = t_node->multipack;
-        uint64_t s_multipack = s_node->multipack;
+        uint64_t t_multipack = GET_NODE_MULTIPACK(t_node);
+        uint64_t s_multipack = GET_NODE_MULTIPACK(s_node);
 
-        if (IDENTITY(t_multipack) == IDENTITY(s_multipack)) {
-            if (RELEVANCY(t_multipack) > RELEVANCY(s_multipack)) {
+        uint32_t t_hash_high = GET_NODE_HASH_HIGH(t_multipack);
+        uint32_t s_hash_high = GET_NODE_HASH_HIGH(s_multipack);
+
+        if (t_hash_high == s_hash_high) {
+            if (GET_NODE_RELEVANCY(t_multipack) > GET_NODE_RELEVANCY(s_multipack)) {
                 mark_duplicate(container->sheet_pool, s_multipack);
-                *indirect = t_current;
-                indirect = &t_node->next;
+                if (prev >= NODE_NEXT_NULL) {
+                    *target_slot = t_current;
+                } else {
+                    SET_NODE_NEXT(&container->all_nodes[prev], t_current);
+                }
+                prev = t_current;
             } else {
                 mark_duplicate(container->sheet_pool, t_multipack);
-                *indirect = s_current;
-                indirect = &s_node->next;
+                if (prev >= NODE_NEXT_NULL) {
+                    *target_slot = s_current;
+                } else {
+                    SET_NODE_NEXT(&container->all_nodes[prev], s_current);
+                }
+                prev = s_current;
             }
             duplicates++;
 
-            t_current = t_node->next;
-            s_current = s_node->next;
-        } else if (IDENTITY(t_multipack) < IDENTITY(s_multipack)) {
-            *indirect = t_current;
-            indirect = &t_node->next;
-            t_current = t_node->next;
+            t_current = GET_NODE_NEXT(t_node);
+            s_current = GET_NODE_NEXT(s_node);
+        } else if (t_hash_high < s_hash_high) {
+            if (prev >= NODE_NEXT_NULL) {
+                *target_slot = t_current;
+            } else {
+                SET_NODE_NEXT(&container->all_nodes[prev], t_current);
+            }
+            prev = t_current;
+            t_current = GET_NODE_NEXT(t_node);
         } else {
-            *indirect = s_current;
-            indirect = &s_node->next;
-            s_current = s_node->next;
+            if (prev >= NODE_NEXT_NULL) {
+                *target_slot = s_current;
+            } else {
+                SET_NODE_NEXT(&container->all_nodes[prev], s_current);
+            }
+            prev = s_current;
+            s_current = GET_NODE_NEXT(s_node);
         }
     }
 
-    while (t_current != UINT32_MAX) {
+    while (t_current < NODE_NEXT_NULL) {
         MatchNode* t_node = &container->all_nodes[t_current];
-        *indirect = t_current;
-        indirect = &t_node->next;
-        t_current = t_node->next;
+        if (prev >= NODE_NEXT_NULL) {
+            *target_slot = t_current;
+        } else {
+            SET_NODE_NEXT(&container->all_nodes[prev], t_current);
+        }
+        prev = t_current;
+        t_current = GET_NODE_NEXT(t_node);
     }
 
-    while (s_current != UINT32_MAX) {
+    while (s_current < NODE_NEXT_NULL) {
         MatchNode* s_node = &container->all_nodes[s_current];
-        *indirect = s_current;
-        indirect = &s_node->next;
-        s_current = s_node->next;
+        if (prev >= NODE_NEXT_NULL) {
+            *target_slot = s_current;
+        } else {
+            SET_NODE_NEXT(&container->all_nodes[prev], s_current);
+        }
+        prev = s_current;
+        s_current = GET_NODE_NEXT(s_node);
     }
 
-    *indirect = UINT32_MAX;
+    if (prev >= NODE_NEXT_NULL) {
+        *target_slot = NODE_NEXT_NULL;
+    } else {
+        SET_NODE_NEXT(&container->all_nodes[prev], NODE_NEXT_NULL);
+    }
+
     return duplicates;
 }
 
-static int bitmap_item_insert(ResultContainer* target,
-                              uint64_t packed,
-                              uint32_t node_index) {
+static int bitmap_item_insert(ResultContainer* target, uint64_t packed, uint32_t node_index) {
     uint64_t item_id = IDENTITY(packed);
     if (!item_id) return 0; // item is unique
 
     uint32_t bit_pos = item_id & ((1ULL << LOG2_BITMAP_BITS) -1);
     target->bitmap[bit_pos >> 6] |= (1ULL << (bit_pos & 63));
 
-    target->all_nodes[node_index].multipack = packed;
-    target->all_nodes[node_index].next = UINT32_MAX;
+    MatchNode* new_node = &target->all_nodes[node_index];
+    SET_NODE_MULTIPACK(new_node, packed);
+    SET_NODE_NEXT(new_node, NODE_NEXT_NULL);
 
     uint32_t* slot = &target->slots[bit_pos];
-    uint32_t* indirect = slot;
     uint32_t current = *slot;
+    uint32_t prev = NODE_NEXT_NULL;
 
-    while (current != UINT32_MAX) {
+    uint32_t item_id_high = item_id >> LOG2_BITMAP_BITS;
+
+    while (current < NODE_NEXT_NULL) {
         MatchNode* current_node = &target->all_nodes[current];
-        uint64_t candidate = current_node->multipack;
+        uint64_t candidate = GET_NODE_MULTIPACK(current_node);
 
-        if (IDENTITY(candidate) == item_id) {
-            if (RELEVANCY(packed) > RELEVANCY(candidate)) {
+        if (GET_NODE_HASH_HIGH(candidate) == item_id_high) {
+            if (RELEVANCY(packed) > GET_NODE_RELEVANCY(candidate)) {
                 mark_duplicate(target->sheet_pool, candidate);
-                target->all_nodes[node_index].next = current_node->next;
-                *indirect = node_index;
+                SET_NODE_NEXT(new_node, GET_NODE_NEXT(current_node));
+                if (prev >= NODE_NEXT_NULL) {
+                    *slot = node_index;
+                } else {
+                    SET_NODE_NEXT(&target->all_nodes[prev], node_index);
+                }
             } else {
                 mark_duplicate(target->sheet_pool, packed);
             }
             return 1;
         }
 
-        if (IDENTITY(candidate) > item_id) break;
-        indirect = &current_node->next;
-        current = current_node->next;
+        if (GET_NODE_HASH_HIGH(candidate) > item_id_high) break;
+        prev = current;
+        current = GET_NODE_NEXT(current_node);
     }
 
-    target->all_nodes[node_index].next = current;
-    *indirect = node_index;
+    SET_NODE_NEXT(new_node, current);
+    if (prev >= NODE_NEXT_NULL) {
+        *slot = node_index;
+    } else {
+        SET_NODE_NEXT(&target->all_nodes[prev], node_index);
+    }
     return 0;
 }
 
@@ -376,8 +472,9 @@ static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
     size_t source_base = target->nodes_count;
     for (size_t i = 0; i < source->nodes_count; i++) {
         target->all_nodes[source_base + i] = source->all_nodes[i];
-        if (source->all_nodes[i].next != UINT32_MAX) {
-            target->all_nodes[source_base + i].next += source_base;
+        uint32_t next = GET_NODE_NEXT(&target->all_nodes[source_base + i]);
+        if (next != NODE_NEXT_NULL) {
+            SET_NODE_NEXT(&target->all_nodes[source_base + i], next + source_base);
         }
     }
     target->nodes_count += source->nodes_count;
@@ -391,7 +488,7 @@ static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
             word &= word - 1;
 
             uint32_t source_slot = source->slots[slot_idx];
-            if (source_slot != UINT32_MAX) {
+            if (source_slot < NODE_NEXT_NULL) {
                 source_slot += source_base;
                 duplicates += merge_and_detect_duplicates(target, &target->slots[slot_idx], source_slot);
             }

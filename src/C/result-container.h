@@ -71,10 +71,7 @@ typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 typedef void (*GDestroyNotify)(void* data);
 
-typedef struct MatchNode {
-    uint64_t multipack;
-    uint32_t next;
-} MatchNode;
+typedef uint64_t MatchNode;
 
 typedef struct ResultSheet {
     uint64_t match_pool[SHEET_SIZE];
