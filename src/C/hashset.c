@@ -553,31 +553,18 @@ void hashset_prepare(HashSet* set) {
 }
 
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {
-    while (1) {
-        int size = atomic_load(&set->size);
-        if (index >= size) return NULL;
+    int size = atomic_load(&set->size);
+    if (index >= size) return NULL;
 
-        if (set->matches[index] != NULL) {
-            return set->matches[index];
-        }
-
+    if (set->matches[index] ==  NULL) {
         uint64_t packed = set->prepared->items[index];
         uint64_t match_data = get_match_item_value(set->sheet_pool, packed);
         MatchFactory factory = GET_MATCH_FACTORY(match_data);
         void* user_data = GET_FACTORY_USER_DATA(match_data);
-
-        if (!user_data) {
-            // item became invalid
-            memmove(&set->prepared->items[index],
-                   &set->prepared->items[index + 1],
-                   (size - index - 1) * sizeof(uint64_t));
-
-            atomic_fetch_sub(&set->size, 1);
-        } else {
-            set->matches[index] = factory(user_data);
-            return set->matches[index];
-        }
+        set->matches[index] = factory(user_data);
     }
+
+    return set->matches[index];
 }
 
 void hashset_destroy(HashSet* set) {
