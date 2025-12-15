@@ -4,467 +4,576 @@
 #include <stdio.h>
 #include <immintrin.h>
 #include "string-utils.h"
+#include <thread-manager.h>
 
 #include <stdlib.h>
 #include <string.h>
 #include "hashset.h"
 
-extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
+#define MAX_POOLED_HASHSETS 8
+#define RADIX_THREADS 6
 
-static inline uint64_t get_match_item_value(ResultSheet** sheet_pool, uint64_t packed) {
-    return sheet_pool[SHEET_IDX(packed)]->match_pool[ITEM_IDX(packed)];
+static HashSet* hashset_pool[MAX_POOLED_HASHSETS];
+static _Atomic(HashSet**) pool_pos = hashset_pool;
+
+static inline HashSet* grab_hashset_from_pool(void) {
+    HashSet** current_pos;
+    __atomic_load(&pool_pos, &current_pos, __ATOMIC_RELAXED);
+    while (current_pos > hashset_pool) {
+        HashSet** next_pos = current_pos - 1;
+        if (atomic_compare_exchange_weak(&pool_pos, &current_pos, next_pos)) {
+            return *next_pos;
+        }
+        __builtin_ia32_pause();
+    }
+    return NULL;
 }
 
-static inline bool is_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    size_t item_idx = ITEM_IDX(packed);
-    return sheet_pool[SHEET_IDX(packed)]->duplicate_bits[item_idx >> 6] & (1ULL << (item_idx & 63));
+static inline bool return_hashset_to_pool(HashSet* set) {
+    HashSet** current_pos;
+    __atomic_load(&pool_pos, &current_pos, __ATOMIC_RELAXED);
+    while (current_pos < hashset_pool + MAX_POOLED_HASHSETS) {
+        HashSet** next_pos = current_pos + 1;
+        if (atomic_compare_exchange_weak(&pool_pos, &current_pos, next_pos)) {
+            *current_pos = set;
+            return true;
+        }
+        __builtin_ia32_pause();
+    }
+    return false;
 }
 
-static inline void mark_duplicate(ResultSheet** sheet_pool, uint64_t packed) {
-    size_t item_idx = ITEM_IDX(packed);
-    sheet_pool[SHEET_IDX(packed)]->duplicate_bits[item_idx >> 6] |= (1ULL << (item_idx & 63));
+static void reset_hashset(HashSet* set) {
+    if (set->matches) {
+        free(set->matches);
+        set->matches = NULL;
+    }
+
+    // hash_items and score_items share memory; restore from whichever is valid
+    if (set->score_items) {
+        set->hash_items = (uint64_t*)set->score_items;
+        set->score_items = NULL;
+    }
+
+    int num_sheets = atomic_load(&set->global_index_counter);
+    for (int i = 0; i < num_sheets; i++) {
+        if (set->sheet_pool[i]) {  // NULL check for failed allocations
+            set->sheet_pool[i]->size = 0;
+        }
+    }
+
+    atomic_store(&set->size, -1);
+    atomic_store(&set->hash_size, 0);
+    atomic_store(&set->global_index_counter, 0);
+    atomic_store(&set->write, 0);
+
+    memset(set->unfinished_queue, 0, sizeof(set->unfinished_queue));
+    atomic_store(&set->read, set->unfinished_queue);
 }
 
-HashSet* hashset_create(int event_id) {
-    HashSet* set = calloc(1, sizeof(HashSet));
+static HashSet* hashset_reuse(int event_id) {
+    HashSet* set = grab_hashset_from_pool();
     if (!set) return NULL;
-
     set->event_id = event_id;
-    atomic_init(&set->size, -1); // -1 is unfinished, 0 is no matches found
-    atomic_init(&set->global_index_counter, 0);
-    atomic_init(&set->write, 0);
-    atomic_init(&set->read, set->unfinished_queue);
     return set;
 }
 
-ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus) {
-    ResultContainer* container = calloc(1, sizeof(ResultContainer));
+static HashSet* hashset_new(int event_id) {
+    HashSet* set = malloc(sizeof(HashSet));
+    if (!set) return NULL;
+
+    set->hash_items = malloc(MAX_SHEETS * SHEET_SIZE * sizeof(uint64_t));
+    if (!set->hash_items) {
+        free(set);
+        return NULL;
+    }
+
+    set->sheet_pool = malloc(MAX_SHEETS * sizeof(ResultSheet*));
+    if (!set->sheet_pool) {
+        free(set->hash_items);
+        free(set);
+        return NULL;
+    }
+
+    set->matches = NULL;
+    set->event_id = event_id;
+    memset(set->unfinished_queue, 0, sizeof(set->unfinished_queue));
+
+    atomic_init(&set->size, -1);
+    atomic_init(&set->hash_size, 0);
+    atomic_init(&set->global_index_counter, 0);
+    atomic_init(&set->write, 0);
+    atomic_init(&set->read, set->unfinished_queue);
+    set->score_items = NULL;
+
+    return set;
+}
+
+HashSet* hashset_create(int event_id) {
+    HashSet* set = hashset_reuse(event_id);
+    if (set) return set;
+    return hashset_new(event_id);
+}
+
+
+ResultContainer* hashset_create_handle(HashSet* hashset, char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless) {
+    ResultContainer* container = malloc(sizeof(ResultContainer));
     if (!container) return NULL;
 
     container->query = query;
-
-    container->string_info = prepare_needle(query);
-    char* query_spaceless = replace(query, " ", "");
-    container->string_info_spaceless = prepare_needle(query_spaceless);
-    free(query_spaceless);
-
+    container->string_info = string_info;
+    container->string_info_spaceless = string_info_spaceless;
+    container->bonus = bonus;
 
     container->event_id = hashset->event_id;
     container->sheet_pool = hashset->sheet_pool;
     container->global_index_counter = &hashset->global_index_counter;
-    container->merges = 0;
-    container->bonus = bonus;
-
     container->read = &hashset->read;
+    container->global_items_size = &hashset->hash_size;
+    container->global_items = hashset->hash_items;
 
+    container->current_sheet = NULL;
+    container->match_mre_idx = 0;
+    container->local_items_size = 0;
+
+    container->local_items = malloc(SHEET_SIZE * sizeof(uint64_t));
     return container;
 }
 
-static int compare(const void* a, const void* b) {
-    uint64_t packed_a = *(uint64_t*)a;
-    uint64_t packed_b = *(uint64_t*)b;
+ResultContainer* hashset_create_default_handle(HashSet* hashset, char* query) {
+    needle_info* string_info = prepare_needle(query);
+    char* query_spaceless = replace(query, " ", "");
+    needle_info* string_info_spaceless = prepare_needle(query_spaceless);
+    free(query_spaceless);
 
-    if (packed_b > packed_a) return 1;
-    if (packed_a > packed_b) return -1;
-    return 0;
+    return hashset_create_handle(hashset, query, 0, string_info, string_info_spaceless);
 }
 
-static int compare_strip_hash(const void* a, const void* b) {
-    // by stripping the hash we force the insertion order to become the tiebreaker
-    uint64_t mask = ~(0xFFFFFFFFULL << 17);
-    uint64_t packed_a = *(uint64_t*)a & mask;
-    uint64_t packed_b = *(uint64_t*)b & mask;
+static void radix_sort_hash_asc(uint64_t* arr, uint64_t* tmp, size_t n) {
+    if (n <= 1) return;
 
-    if (packed_b > packed_a) return 1;
-    if (packed_a > packed_b) return -1;
-    return 0;
+    size_t count[256] = {0};
+
+    // Sort by byte 4 (bits 32-39)
+    for (size_t i = 0; i < n; i++)
+        count[ ((arr[i] >> 32) & 0xFF)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        tmp[--count[ ((arr[i] >> 32) & 0xFF)]] = arr[i];
+
+    memset(count, 0, sizeof(count));
+
+    // Sort by byte 5 (bits 40-47)
+    for (size_t i = 0; i < n; i++)
+        count[ ((tmp[i] >> 40) & 0xFF)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        arr[--count[ ((tmp[i] >> 40) & 0xFF)]] = tmp[i];
+
+    memset(count, 0, sizeof(count));
+
+    // Sort by byte 6 (bits 48-55)
+    for (size_t i = 0; i < n; i++)
+        count[ ((arr[i] >> 48) & 0xFF)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        tmp[--count[ ((arr[i] >> 48) & 0xFF)]] = arr[i];
+
+    memset(count, 0, sizeof(count));
+
+    // Sort by byte 7 (bits 56-63)
+    for (size_t i = 0; i < n; i++)
+        count[((tmp[i] >> 56) & 0xFF)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        arr[--count[((tmp[i] >> 56) & 0xFF)]] = tmp[i];
 }
 
-static inline void ensure_target_largest(ResultContainer** target, ResultContainer** source) {
-    if ((*source)->size <= (*target)->size) return;
+static void radix_sort_score(uint64_t* src, uint32_t* tmp, size_t n) {
+    uint32_t* dest = (uint32_t*)src;
+    if (n == 0) return;
 
-    ResultContainer* temp = *target;
-    *target = *source;
-    *source = temp;
+    if (n == 1) {
+        dest[0] = (uint32_t)src[0];
+        return;
+    }
+
+    size_t count[256] = {0};
+
+    // Pass 1: src (64-bit) -> tmp (32-bit), sort by bits 16-23
+    for (size_t i = 0; i < n; i++)
+        count[255 - ((src[i] >> 16) & 0xFE)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        tmp[--count[255 - ((src[i] >> 16) & 0xFE)]] = (uint32_t)src[i];
+
+    memset(count, 0, sizeof(count));
+
+    // Pass 2: tmp -> dest (reusing src memory as uint32_t*), sort by bits 24-31
+    for (size_t i = 0; i < n; i++)
+        count[255 - ((tmp[i] >> 24) & 0xFF)]++;
+    for (int i = 1; i < 256; i++)
+        count[i] += count[i-1];
+    for (size_t i = n; i-- > 0;)
+        dest[--count[255 - ((tmp[i] >> 24) & 0xFF)]] = tmp[i];
 }
 
-static void merge_workers(ResultSheet** sheet_pool, ResultContainer* target, ResultContainer* source, int duplicates) {
-    size_t total_size = target->size + source->size - duplicates;
+#include <time.h>
 
-    if (total_size > target->items_capacity) {
-        // Since all matches end up in a single container, that container must end up
-        // at ≈ global_index_counter * SHEET_SIZE matches. To reduce
-        // repetitive reallocations, we try to set the final size instead of the needed
-        // size. the 2 > is simply a heuristic that seems to work well in practice.
-        // Non-final containers very rarely end up merging more than that.
+// static struct timespec bench_start, bench_end;
+// static double time_sort1_ms, time_dedup_ms, time_sort2_ms;
 
-        int new_capacity = target->merges > 2 ?
-            atomic_load(target->global_index_counter) * SHEET_SIZE :
-            total_size;
-
-        uint64_t* new_items = realloc(target->items, new_capacity * sizeof(uint64_t));
-        if (!new_items) return;
-        target->items = new_items;
-        target->items_capacity = new_capacity;
-    }
-
-    size_t result_index = total_size - 1;
-    size_t target_index = target->size - 1;
-    size_t source_index = source->size - 1;
-
-    // Perform reverse merge to avoid extra memory allocation
-    // we can do a lot of optimizations here given our domain knowledge:
-    //
-    // 1. Target will be equal to or larger than source
-    // 2. The arrays are already sorted
-    // 3. Duplicates will be lower relevance than their preferred counterparts
-    // 4. All items marked as duplicates in this merge have their
-    //    higher-relevance counterpart in either source or target.
-    //    Since we process both arrays together, we're guaranteed to
-    //    handle all duplicates before source is exhausted.
-    //
-    // So, we don't need to iterate through all of the elements of target.
-    // Since source is smaller than or equal to target, all duplicates will have been
-    // taken care of when we run out of source; because either it's in source itself,
-    // or it's in target; but if it's in target, this means having the higher ranked
-    // identity in source and that means that we won't run out of source until we've
-    // inserted the higher ranking sibling from said source!
-    // The two pairs of while loops is an optimization: if we don't have any duplicates
-    // in the items being merged, we pick the loops that don't need to check.
-
-    while (duplicates && source_index < source->size && target_index < target->size) {
-        uint64_t t_packed = target->items[target_index];
-
-        if (is_duplicate(sheet_pool, t_packed)) {
-            target_index--;
-            duplicates--;
-            continue;
-        }
-
-        uint64_t s_packed = source->items[source_index];
-        if (is_duplicate(sheet_pool, s_packed)) {
-            source_index--;
-            duplicates--;
-            continue;
-        }
-
-        if (t_packed > s_packed) {
-            target->items[result_index--] = s_packed;
-            source_index--;
-        } else {
-            target->items[result_index--] = t_packed;
-            target_index--;
-        }
-    }
-
-    while (source_index < source->size && target_index < target->size) {
-        uint64_t t_packed = target->items[target_index];
-        uint64_t s_packed = source->items[source_index];
-        if (t_packed > s_packed) {
-            target->items[result_index--] = s_packed;
-            source_index--;
-        } else {
-            target->items[result_index--] = t_packed;
-            target_index--;
-        }
-    }
-
-    while (duplicates && source_index < source->size) {
-        uint64_t s_packed = source->items[source_index];
-        if (!is_duplicate(sheet_pool, s_packed)) {
-            target->items[result_index--] = s_packed;
-        } else {
-            duplicates--;
-        }
-        source_index--;
-    }
-
-    while (source_index < source->size) {
-        target->items[result_index--] = source->items[source_index--];
-    }
-
-    target->size = total_size;
-    target->merges++;
+static inline double timespec_diff_ms(struct timespec start, struct timespec end) {
+    return (end.tv_sec - start.tv_sec) * 1000.0 +
+           (end.tv_nsec - start.tv_nsec) / 1000000.0;
 }
 
-static int merge_and_detect_duplicates(ResultContainer* container,
-                                               uint32_t* target_slot,
-                                               uint32_t source_head) {
-    int duplicates = 0;
-    uint32_t* indirect = target_slot;
-    uint32_t t_current = *target_slot;
-    uint32_t s_current = source_head;
 
-    while (t_current != UINT32_MAX && s_current != UINT32_MAX) {
-        MatchNode* t_node = &container->all_nodes[t_current];
-        MatchNode* s_node = &container->all_nodes[s_current];
+#define DEDUP 5
+// #define DEDUP_END 11
+#define SCORE_HIST 12
+#define SCORE_SCATTER 13
+#define SCORE_SORT 14
 
-        uint64_t t_multipack = t_node->multipack;
-        uint64_t s_multipack = s_node->multipack;
 
-        if (IDENTITY(t_multipack) == IDENTITY(s_multipack)) {
-            if (RELEVANCY(t_multipack) > RELEVANCY(s_multipack)) {
-                mark_duplicate(container->sheet_pool, s_multipack);
-                *indirect = t_current;
-                indirect = &t_node->next;
-            } else {
-                mark_duplicate(container->sheet_pool, t_multipack);
-                *indirect = s_current;
-                indirect = &s_node->next;
+#define CACHELINE 64
+#define PAD(sz) ((CACHELINE - ((sz) % CACHELINE)) % CACHELINE)
+
+typedef struct {
+    atomic_int v;
+    char _pad[PAD(sizeof(atomic_int))];
+} padded_atomic_int;
+
+typedef struct {
+    atomic_int count;
+    atomic_int sense;
+} sense_barrier_t;
+
+
+typedef struct {
+    uint64_t* arr;
+    uint64_t* tmp;
+    size_t n;
+
+    int shifts[4];
+
+    size_t local_counts[RADIX_THREADS][256] __attribute__((aligned(CACHELINE)));
+    size_t write_offsets[RADIX_THREADS][256] __attribute__((aligned(CACHELINE)));
+    // note no false sharing going on here, all array access is within cache lines!
+
+    int local_dups[RADIX_THREADS];
+
+    uint32_t* score_tmp;
+
+    padded_atomic_int bar[2];
+
+
+    HashSet* set;
+} ParallelRadixState;
+
+
+static inline bool barrier_guard(ParallelRadixState* s, int bi) {
+    return atomic_fetch_add(&s->bar[bi].v, 1) == RADIX_THREADS - 1;
+}
+
+static inline void barrier_init(ParallelRadixState* s) {
+    while (atomic_load(&s->bar[1].v) != 0)
+        __builtin_ia32_pause();
+}
+
+static inline bool barrier_wait(ParallelRadixState* s, int* bi) {
+    int idx = *bi;
+    *bi ^= 1;
+
+    if (atomic_fetch_add(&s->bar[idx].v, 1) == RADIX_THREADS - 1) {
+        atomic_store(&s->bar[idx ^ 1].v, 0);  // reset next barrier
+        return true;  // I'm last, others are waiting, do work then release
+    } else {
+        while (atomic_load(&s->bar[idx].v) > 0)
+            __builtin_ia32_pause();
+        return false;
+    }
+}
+
+static inline void barrier_release(ParallelRadixState* s, int bi) {
+    atomic_store(&s->bar[bi ^ 1].v, 0);
+}
+
+static void radix_pass_task(void* arg) {
+    int* my_id_ptr = (int*)arg;
+    int tid = *my_id_ptr;
+    ParallelRadixState* s = (ParallelRadixState*)(my_id_ptr - tid) - 1;
+
+    size_t n = s->n;
+    size_t chunk = (n + RADIX_THREADS - 1) / RADIX_THREADS;
+    size_t start = tid * chunk;
+    size_t end = (tid + 1) * chunk;
+    if (end > n) end = n;
+
+    int bi = 0;
+
+    barrier_init(s);
+
+    // === HASH SORT (4 passes) ===
+    for (int pass = 0; pass < 4; pass++) {
+        int shift = s->shifts[pass];
+        uint64_t* src = (pass & 1) ? s->tmp : s->arr;
+        uint64_t* dst = (pass & 1) ? s->arr : s->tmp;
+
+        memset(s->local_counts[tid], 0, sizeof(s->local_counts[0]));
+        for (size_t i = start; i < end; i++)
+            s->local_counts[tid][(src[i] >> shift) & 0xFF]++;
+
+        if (barrier_wait(s, &bi)) {
+            size_t running = 0;
+            for (int b = 0; b < 256; b++) {
+                for (int t = 0; t < RADIX_THREADS; t++) {
+                    s->write_offsets[t][b] = running;
+                    running += s->local_counts[t][b];
+                }
             }
-            duplicates++;
+            barrier_release(s, bi);
+        }
 
-            t_current = t_node->next;
-            s_current = s_node->next;
-        } else if (IDENTITY(t_multipack) < IDENTITY(s_multipack)) {
-            *indirect = t_current;
-            indirect = &t_node->next;
-            t_current = t_node->next;
-        } else {
-            *indirect = s_current;
-            indirect = &s_node->next;
-            s_current = s_node->next;
+        size_t offsets[256];
+        memcpy(offsets, s->write_offsets[tid], sizeof(offsets));
+        for (size_t i = start; i < end; i++) {
+            uint8_t byte = (src[i] >> shift) & 0xFF;
+            dst[offsets[byte]++] = src[i];
+        }
+
+        if (barrier_wait(s, &bi)) {
+            barrier_release(s, bi);
         }
     }
 
-    while (t_current != UINT32_MAX) {
-        MatchNode* t_node = &container->all_nodes[t_current];
-        *indirect = t_current;
-        indirect = &t_node->next;
-        t_current = t_node->next;
-    }
-
-    while (s_current != UINT32_MAX) {
-        MatchNode* s_node = &container->all_nodes[s_current];
-        *indirect = s_current;
-        indirect = &s_node->next;
-        s_current = s_node->next;
-    }
-
-    *indirect = UINT32_MAX;
-    return duplicates;
-}
-
-static int bitmap_item_insert(ResultContainer* target,
-                              uint64_t packed,
-                              uint32_t node_index) {
-    uint64_t item_id = IDENTITY(packed);
-    if (!item_id) return 0; // item is unique
-
-    uint32_t bit_pos = item_id & ((1ULL << LOG2_BITMAP_BITS) -1);
-    target->bitmap[bit_pos >> 6] |= (1ULL << (bit_pos & 63));
-
-    target->all_nodes[node_index].multipack = packed;
-    target->all_nodes[node_index].next = UINT32_MAX;
-
-    uint32_t* slot = &target->slots[bit_pos];
-    uint32_t* indirect = slot;
-    uint32_t current = *slot;
-
-    while (current != UINT32_MAX) {
-        MatchNode* current_node = &target->all_nodes[current];
-        uint64_t candidate = current_node->multipack;
-
-        if (IDENTITY(candidate) == item_id) {
-            if (RELEVANCY(packed) > RELEVANCY(candidate)) {
-                mark_duplicate(target->sheet_pool, candidate);
-                target->all_nodes[node_index].next = current_node->next;
-                *indirect = node_index;
-            } else {
-                mark_duplicate(target->sheet_pool, packed);
-            }
-            return 1;
-        }
-
-        if (IDENTITY(candidate) > item_id) break;
-        indirect = &current_node->next;
-        current = current_node->next;
-    }
-
-    target->all_nodes[node_index].next = current;
-    *indirect = node_index;
-    return 0;
-}
-
-static int insert_bitmap_items(ResultContainer* target, ResultContainer* source) {
-    size_t needed = target->nodes_count + source->size;
-
-    if (needed > target->nodes_capacity) {
-        size_t new_capacity = needed * 3 / 2;
-        if (new_capacity < 16) new_capacity = 16;
-
-        MatchNode* new_nodes = realloc(target->all_nodes, new_capacity * sizeof(MatchNode));
-        if (!new_nodes) return -1;
-
-        target->all_nodes = new_nodes;
-        target->nodes_capacity = new_capacity;
-    }
-
-    int duplicates = 0;
-    size_t base_index = target->nodes_count;
-
-    for (size_t i = 0; i < source->size; i++) {
-        duplicates += bitmap_item_insert(target, source->items[i], base_index + i);
-    }
-
-    target->nodes_count += source->size;
-    return duplicates;
-}
-
-static void steal_bitmap(ResultContainer* target, ResultContainer* source) {
-    target->bitmap = source->bitmap;
-    target->slots = source->slots;
-    target->all_nodes = source->all_nodes;
-    target->nodes_count = source->nodes_count;
-    target->nodes_capacity = source->nodes_capacity;
-
-    source->bitmap = NULL;
-    source->slots = NULL;
-    source->all_nodes = NULL;
-    source->nodes_count = 0;
-    source->nodes_capacity = 0;
-}
-
-static int bitmap_merge_with_collision_detection(ResultSheet** sheet_pool,
-                                                ResultContainer* target,
-                                                ResultContainer* source) {
-    if (!source->size || !target->size) return 0;
-
-    int duplicates = 0;
-
-    if (!target->bitmap && !source->bitmap) {
-        target->bitmap = calloc(BITMAP_SIZE, sizeof(uint64_t));
-        target->slots = malloc((1ULL << LOG2_BITMAP_BITS) * sizeof(uint32_t));
-        memset(target->slots, 0xFF, (1ULL << LOG2_BITMAP_BITS) * sizeof(uint32_t));
-
-        size_t total_size = source->size + target->size;
-        target->all_nodes = malloc(total_size * sizeof(MatchNode));
-        target->nodes_capacity = total_size;
-        target->nodes_count = 0;
-
-        for (size_t i = 0; i < target->size; i++) {
-            duplicates += bitmap_item_insert(target, target->items[i], target->nodes_count++);
-        }
-
-        for (size_t j = 0; j < source->size; j++) {
-            duplicates += bitmap_item_insert(target, source->items[j], target->nodes_count++);
-        }
-        return duplicates;
-    }
-
-    if (source->bitmap && !target->bitmap) {
-        duplicates = insert_bitmap_items(source, target);
-        steal_bitmap(target, source);
-        return duplicates;
-    }
-
-    if (!source->bitmap) {
-        return insert_bitmap_items(target, source);
-    }
-
-    // Both have bitmaps - need to merge nodes arrays first
-    size_t needed = target->nodes_count + source->nodes_count;
-    if (needed > target->nodes_capacity) {
-        size_t new_capacity = needed * 3 / 2;
-        MatchNode* new_nodes = realloc(target->all_nodes, new_capacity * sizeof(MatchNode));
-        if (!new_nodes) return -1;
-
-        target->all_nodes = new_nodes;
-        target->nodes_capacity = new_capacity;
-    }
-
-    size_t source_base = target->nodes_count;
-    for (size_t i = 0; i < source->nodes_count; i++) {
-        target->all_nodes[source_base + i] = source->all_nodes[i];
-        if (source->all_nodes[i].next != UINT32_MAX) {
-            target->all_nodes[source_base + i].next += source_base;
+    // === DEDUP ===
+    uint64_t* hash_items = s->arr;
+    int local_dups = 0;
+    for (size_t i = start + 1; i < end; i++) {
+        int64_t result = hash_items[i] - hash_items[i - 1];
+        if (result < UINT32_MAX) {
+            hash_items[i - 1] = 0;
+            if (result < 0)
+                hash_items[i] -= result;
+            local_dups++;
         }
     }
-    target->nodes_count += source->nodes_count;
 
-    for (int word_idx = 0; word_idx < BITMAP_SIZE; word_idx++) {
-        uint64_t word = source->bitmap[word_idx];
-        target->bitmap[word_idx] |= word;
+    if (barrier_wait(s, &bi)) {
+        barrier_release(s, bi);
+    }
 
-        while (word) {
-            size_t slot_idx = (word_idx << 6) + __builtin_ctzll(word);
-            word &= word - 1;
+    if (tid + 1 < RADIX_THREADS && end < s->n) {
+        size_t dup_end = end;
 
-            uint32_t source_slot = source->slots[slot_idx];
-            if (source_slot != UINT32_MAX) {
-                source_slot += source_base;
-                duplicates += merge_and_detect_duplicates(target, &target->slots[slot_idx], source_slot);
+        while (dup_end < s->n && hash_items[dup_end] == 0) {
+            dup_end++;
+        }
+
+        if (dup_end < s->n) {
+            uint64_t a = hash_items[end - 1];
+            uint64_t b = hash_items[dup_end];
+            int64_t result = hash_items[dup_end] - hash_items[end - 1];
+            if (b - a < UINT32_MAX) {
+                hash_items[end - 1] = 0;
+                if (result < 0)
+                    hash_items[dup_end] -= result;
+                local_dups++;
             }
         }
     }
 
-    free(source->all_nodes);
-    source->all_nodes = NULL;
-    source->nodes_count = 0;
-    source->nodes_capacity = 0;
+    s->local_dups[tid] = local_dups;
 
-    return duplicates;
+    // === SCORE SORT PASS 1 ===
+    uint32_t* score_tmp = s->score_tmp;
+
+    memset(s->local_counts[tid], 0, sizeof(s->local_counts[0]));
+    for (size_t i = start; i < end; i++)
+        s->local_counts[tid][255 - ((hash_items[i] >> 16) & 0xFE)]++;
+
+    if (barrier_wait(s, &bi)) {
+        size_t running = 0;
+        for (int b = 0; b < 256; b++) {
+            for (int t = 0; t < RADIX_THREADS; t++) {
+                s->write_offsets[t][b] = running;
+                running += s->local_counts[t][b];
+            }
+        }
+        barrier_release(s, bi);
+    }
+
+
+    size_t offsets[256];
+    memcpy(offsets, s->write_offsets[tid], sizeof(offsets));
+    for (size_t i = start; i < end; i++) {
+        uint8_t byte = 255 - ((hash_items[i] >> 16) & 0xFE);
+        score_tmp[offsets[byte]++] = (uint32_t)hash_items[i];
+    }
+
+    if (barrier_wait(s, &bi)) {
+        barrier_release(s, bi);
+    }
+
+    // === SCORE SORT PASS 2 ===
+    uint32_t* dest = (uint32_t*)hash_items;
+
+    memset(s->local_counts[tid], 0, sizeof(s->local_counts[0]));
+    for (size_t i = start; i < end; i++)
+        s->local_counts[tid][255 - ((score_tmp[i] >> 24) & 0xFF)]++;
+
+    if (barrier_wait(s, &bi)) {
+        size_t running = 0;
+        for (int b = 0; b < 256; b++) {
+            for (int t = 0; t < RADIX_THREADS; t++) {
+                s->write_offsets[t][b] = running;
+                running += s->local_counts[t][b];
+            }
+        }
+        barrier_release(s, bi);
+    }
+
+    memcpy(offsets, s->write_offsets[tid], sizeof(offsets));
+    for (size_t i = start; i < end; i++) {
+        uint8_t byte = 255 - ((score_tmp[i] >> 24) & 0xFF);
+        dest[offsets[byte]++] = score_tmp[i];
+    }
+
+    if (barrier_guard(s, bi)) {
+        HashSet* set = s->set;
+        set->score_items = dest;
+        set->hash_items = NULL;
+        set->matches = (BobLauncherMatch**)s->tmp;
+
+        size_t total_dups = 0;
+        for (int i = 0; i < RADIX_THREADS; i++)
+            total_dups += s->local_dups[i];
+
+        atomic_store(&set->size, n - total_dups);
+        free(s->score_tmp);
+        free(s);
+    }
 }
 
-static inline void return_sheet(HashSet* set, ResultContainer* container) {
-    if (container->current_sheet->size == SHEET_SIZE) return;
+void hashset_prepare_new_parallel(HashSet* set) {
+    size_t n = set->hash_size;
+    if (n <= 1) {
+        atomic_store(&set->size, n);
+        return;
+    }
+
+    ParallelRadixState* s = aligned_alloc(64, sizeof(ParallelRadixState) + RADIX_THREADS * sizeof(int));
+    if (!s) return;
+
+    s->arr = set->hash_items;
+    s->n = n;
+    s->shifts[0] = 32; s->shifts[1] = 40; s->shifts[2] = 48; s->shifts[3] = 56;
+    s->set = set;
+    atomic_init(&s->bar[0].v, 0);
+    atomic_init(&s->bar[1].v, -1); // block until we can malloc
+
+    int* worker_ids = (int*)(s + 1);
+
+    for (int i = 0; i < RADIX_THREADS; i++) {
+        worker_ids[i] = i;
+    }
+
+    for (int i = 1; i < RADIX_THREADS; i++) {
+        thread_pool_run((void(*)(void*))radix_pass_task, &worker_ids[i], NULL);
+    }
+
+    uint64_t* tmp = malloc(n * sizeof(uint64_t));
+    if (!tmp) return;
+    s->tmp = tmp;
+
+    atomic_store(&s->bar[1].v, 0); // release
+
+    uint32_t* score_tmp = malloc(n * sizeof(uint32_t));
+    if (!score_tmp) { free(tmp); return; }
+    s->score_tmp = score_tmp;
+
+    radix_pass_task(&worker_ids[0]);
+}
+
+void hashset_prepare_new(HashSet* set) {
+    uint64_t* hash_items = set->hash_items;
+    size_t n = set->hash_size;
+
+    uint64_t* tmp_one = malloc(n * sizeof(uint64_t));
+    if (!tmp_one) return;
+
+    radix_sort_hash_asc(hash_items, tmp_one, set->hash_size);
+
+    int dups = 0;
+    for (size_t i = 1; i < n; i++) {
+        int64_t result = hash_items[i] - hash_items[i - 1];
+
+        if (result < UINT32_MAX) {
+            hash_items[i - 1] = 0;
+            if (result < 0)
+                hash_items[i] -= result;
+            dups++;
+        }
+    }
+
+    uint32_t* tmp_two = malloc(n * sizeof(uint32_t));
+    if (!tmp_two) return;
+
+    radix_sort_score(hash_items, tmp_two, n);
+
+    set->score_items = (uint32_t*)hash_items;
+    set->hash_items = NULL;
+
+    set->matches = (BobLauncherMatch**)tmp_one;
+    atomic_store(&set->size, n - dups);
+
+    free(tmp_two);
+}
+
+void container_return_sheet(HashSet* set, ResultContainer* container) {
+    if (!container->current_sheet || container->current_sheet->size >= SHEET_SIZE) return;
 
     int pos = atomic_fetch_add(&set->write, 1);
     set->unfinished_queue[pos] = container->current_sheet;
+    container->current_sheet = NULL;
 }
 
-static ALWAYS_INLINE void _hashset_merge_common(HashSet* set, ResultContainer* current,
-                                         int (*cmp)(const void*, const void*)) {
-    if (!current->items) {
-        container_destroy(current);
-        return;
-    }
-    return_sheet(set, current);
+void container_flush_items(HashSet* set, ResultContainer* container) {
+    if (!set || !container->local_items_size) return;
 
-    qsort(current->items, current->size, sizeof(uint64_t), cmp);
+    int write_start = atomic_fetch_add(&set->hash_size, container->local_items_size);
 
-    // We will loop here until we can't grab a container.
-    // "Prepared" is a slot that all workers insert their finished container into
-    // if it's not empty, that means a container has to merge with that. if it is empty
-    // the worker inserts its own container and exits. Note that this works whether or
-    // not the worker actually merged with any other containers.
-    while (1) {
-        ResultContainer* previous = atomic_exchange(&set->prepared, NULL);
-        if (previous) {
-            ensure_target_largest(&current, &previous);
-            int duplicates = bitmap_merge_with_collision_detection(set->sheet_pool, current, previous);
-            merge_workers(set->sheet_pool, current, previous, duplicates);
-            container_destroy(previous);
-        } else if (atomic_compare_exchange_weak(&set->prepared, &previous, current)) {
-            return;
-        }
-    }
+    memcpy(set->hash_items + write_start, container->local_items, container->local_items_size * sizeof(uint64_t));
+    container->local_items_size = 0;
 }
 
-void hashset_merge_prefer_hash(HashSet* set, ResultContainer* current) {
-    _hashset_merge_common(set, current, compare);
-}
+#define FOURTY_THREE_BITS 0x000007FFFFFFFFFFULL
+#define FOURTY_EIGHT_BITS 0x0000FFFFFFFFFFFFULL
 
-void hashset_merge_prefer_insertion(HashSet* set, ResultContainer* current) {
-    _hashset_merge_common(set, current, compare_strip_hash);
-}
+#define GET_FACTORY_USER_DATA(packed) \
+    ((void*)(((packed) & FOURTY_THREE_BITS) << 4))
 
-void hashset_prepare(HashSet* set) {
-    if (!set->prepared) return;
-    set->matches = calloc(set->prepared->size, sizeof(BobLauncherMatch*));
-    atomic_store(&set->size, set->prepared->size);
-}
 
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {
-    int size = atomic_load(&set->size);
-    if (index >= size) return NULL;
+    if (set->size <= index) return NULL;
 
-    if (set->matches[index] ==  NULL) {
-        uint64_t packed = set->prepared->items[index];
-        uint64_t match_data = get_match_item_value(set->sheet_pool, packed);
-        MatchFactory factory = GET_MATCH_FACTORY(match_data);
+    uint32_t packed = set->score_items[index];
+    if (packed != UINT32_MAX) {
+        set->score_items[index] = UINT32_MAX;
+
+        int sheet_idx = SHEET_IDX(packed);
+        int item_idx = ITEM_IDX(packed);
+        uint64_t match_data = set->sheet_pool[sheet_idx]->match_pool[item_idx];
+
+        FuncPair pair = get_func_pair(match_data);
         void* user_data = GET_FACTORY_USER_DATA(match_data);
-        set->matches[index] = factory(user_data);
+        set->matches[index] = ((MatchFactory)pair.match)(user_data);
     }
 
     return set->matches[index];
@@ -473,29 +582,47 @@ BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {
 void hashset_destroy(HashSet* set) {
     if (!set) return;
 
-    int old_capacity = atomic_exchange(&set->size, 0);
+    int old_capacity = atomic_exchange(&set->size, -1);
+    int num_sheets = atomic_load(&set->global_index_counter);
 
-    for (int i = 0; i < MAX_SHEETS; i++) {
+    for (int i = 0; i < num_sheets; i++) {
         ResultSheet* sheet = set->sheet_pool[i];
-        if (sheet) {
-            for (int j = 0; j < sheet->size; j++) {
-                uint64_t item = sheet->match_pool[j];
-                GDestroyNotify destroy = GET_FACTORY_DESTROY(item);
-                if (destroy) {
-                    destroy(GET_FACTORY_USER_DATA(item));
-                }
+        if (!sheet) continue;
+
+        for (size_t j = 0; j < sheet->size; j++) {
+            uint64_t item = sheet->match_pool[j];
+            FuncPair pair = get_func_pair(item);
+            if (pair.destroy) {
+                ((GDestroyNotify)pair.destroy)(GET_FACTORY_USER_DATA(item));
             }
-            free(sheet);
         }
     }
 
-    container_destroy(set->prepared);
-
     for (int i = 0; i < old_capacity; i++) {
-        if (set->matches[i]) {
+        if (set->score_items[i] == UINT32_MAX) {
             g_object_unref(set->matches[i]);
         }
     }
+
     free(set->matches);
+    set->matches = NULL;
+
+    reset_hashset(set);
+    if (return_hashset_to_pool(set)) {
+        return;
+    }
+
+    for (int i = 0; i < num_sheets; i++) {
+        free(set->sheet_pool[i]);
+    }
+
+    free(set->sheet_pool);
+
+    if (set->score_items) {
+        free(set->score_items);
+    } else {
+        free(set->hash_items);
+    }
+
     free(set);
 }

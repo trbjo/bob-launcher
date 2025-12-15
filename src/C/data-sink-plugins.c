@@ -100,7 +100,9 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
         indices[i] = i;
     }
 
-    qsort(indices, length, sizeof(int), compare_descending);
+    qsort(indices, length, sizeof(int), compare_ascending);
+    int query_empty = g_utf8_strlen(query, -1) == 0;
+
 
     for (int i = 0; i < length; i++) {
         BobLauncherSearchBase* plg = (BobLauncherSearchBase*)plugin_loader_search_providers->pdata[indices[i]];
@@ -111,7 +113,7 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
             continue;
         }
 
-        int16_t score = match_score(si, title);
+        int16_t score = query_empty || match_score(si, title);
         free(title);
 
         result_container_add_lazy_unique(rc, score, (MatchFactory)g_object_ref, plg, NULL);
@@ -120,8 +122,11 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
     free(indices);
     free_string_info(si);
 
-    hashset_merge(hsh, rc);
-    hashset_prepare(hsh);
+    container_flush_items(hsh, rc);
+    container_return_sheet(hsh, rc);
+    container_destroy(rc);
+
+    hashset_prepare_new(hsh);
 
     return hsh;
 }
@@ -152,8 +157,12 @@ HashSet* data_sink_search_for_targets(const char* query, BobLauncherActionTarget
     umd->action_target = g_object_ref(a);
     result_container_add_lazy_unique(rc, 100, create_unknown_match, umd, free_unknown_match_data);
 
-    hashset_merge(hsh, rc);
-    hashset_prepare(hsh);
+    container_flush_items(hsh, rc);
+    container_return_sheet(hsh, rc);
+    container_destroy(rc);
+
+    hashset_prepare_new(hsh);
+
 
     return hsh;
 }

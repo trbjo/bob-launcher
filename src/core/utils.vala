@@ -11,10 +11,6 @@ namespace BobLauncher {
             Threads.run((owned)task);
         }
 
-        public static ulong spawn_joinable(owned TaskFunc task) {
-            return Threads.spawn_joinable((owned)task);
-        }
-
         public static void join(ulong thread_id) {
             Threads.join(thread_id);
         }

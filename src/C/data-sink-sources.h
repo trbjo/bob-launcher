@@ -7,7 +7,7 @@
 typedef struct _BobLauncherSearchBase BobLauncherSearchBase;
 
 void data_sink_sources_execute_search(
-    const char* query,
+    const char* q,
     BobLauncherSearchBase* selected_plg,
     int event_id,
     bool reset_index);

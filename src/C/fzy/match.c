@@ -10,9 +10,6 @@
 #include "bonus.h"
 #include "config.h"
 
-#define SCORE_MIN -512
-
-
 static inline uint32_t utf8_to_codepoint(const char* str, int* advance) {
     const uint8_t* s = (const uint8_t*)str;
     uint8_t first = s[0];
@@ -113,7 +110,47 @@ static inline uint32_t utf8_to_codepoint(const char* str, int* advance) {
     }
 }
 
-static int setup_haystack_and_match(const needle_info* needle, haystack_info* hay, const char* haystack_str) {
+int haystack_update(haystack_info* hay, const char* str, uint16_t common_chars,
+                    haystack_index* index,
+                    const needle_info* needle) {
+    haystack_index start = index[common_chars];
+    int pos = start.pos;
+    int n_idx = start.n_idx;
+
+    const unsigned char* s = (const unsigned char*)(str + common_chars);
+    unsigned char last_ch = (pos > 0) ? (unsigned char)hay->chars[pos - 1] : '/';
+    int byte_offset = common_chars;
+
+    while (*s && pos < MATCH_MAX_LEN) {
+        int char_len;
+        uint32_t codepoint = utf8_to_codepoint((const char*)s, &char_len);
+
+        hay->chars[pos] = codepoint;
+        hay->bonus[pos] = COMPUTE_BONUS(last_ch, (unsigned char)codepoint);
+
+        for (int b = 0; b < char_len; b++) {
+            index[byte_offset + b] = (haystack_index){pos, n_idx};
+        }
+
+        if (n_idx < needle->len &&
+            (codepoint == needle->chars[n_idx] || codepoint == needle->unicode_upper[n_idx])) {
+            n_idx++;
+        }
+
+        last_ch = (unsigned char)codepoint;
+        s += char_len;
+        byte_offset += char_len;
+        pos++;
+    }
+
+    index[byte_offset] = (haystack_index){pos, n_idx};
+    hay->len = pos;
+
+    return n_idx == needle->len;
+}
+
+
+int setup_haystack_and_match(const needle_info* needle, haystack_info* hay, const char* haystack_str) {
 	if (!haystack_str || !*haystack_str) return 0;
 
 	const uint32_t *n_chars = needle->chars;
@@ -202,15 +239,18 @@ score_t match_score(const needle_info* needle, const char* haystack_str) {
 	}
 
 	if (needle->len == 0) {
-		return SCORE_THRESHOLD;
+		return SCORE_BELOW_THRESHOLD;
 	}
 
 	haystack_info haystack;
 	if (!setup_haystack_and_match(needle, &haystack, haystack_str)) return SCORE_BELOW_THRESHOLD;
 	precompute_bonus(&haystack);
+	return match_score_with_haystack(needle, &haystack);
+}
 
+score_t match_score_with_haystack(const needle_info* needle, haystack_info* haystack) {
 	const int n = needle->len;
-	const int m = haystack.len;
+	const int m = haystack->len;
 
 	if (n > m) {
 		/*
@@ -231,13 +271,80 @@ score_t match_score(const needle_info* needle, const char* haystack_str) {
 	 * D[][] Stores the best score for this position ending with a match.
 	 * M[][] Stores the best possible score at this position.
 	 */
-	score_t D[MATCH_MAX_LEN], M[MATCH_MAX_LEN];
+	score_t D[haystack->len], M[haystack->len];
 
 	for (int i = 0; i < n; i++) {
-		match_row(needle, &haystack, i, D, M, D, M);
+		match_row(needle, haystack, i, D, M, D, M);
 	}
 
 	return M[m - 1];
+}
+
+score_t match_score_column_major(
+    const needle_info* needle,
+    const haystack_info* haystack,
+    int start_col,
+    CacheCell* cache)
+{
+    const int n = needle->len;
+    const int m = haystack->len;
+
+    if (n > m) return SCORE_BELOW_THRESHOLD;
+    if (n == m) return SCORE_MAX;
+
+    // When n == 1, row 0 is also the last row
+    const score_t gap_row0 = (n == 1) ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
+
+    // Handle j == 0 separately (only if start_col == 0)
+    if (start_col == 0) {
+        uint32_t hay_char = haystack->chars[0];
+        score_t bonus = haystack->bonus[0];
+
+        for (int i = 0; i < n; i++) {
+            if (hay_char == needle->chars[i] || hay_char == needle->unicode_upper[i]) {
+                cache[i] = (CacheCell){bonus, bonus};
+            } else {
+                score_t gap = (i == n - 1) ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
+                cache[i] = (CacheCell){SCORE_BELOW_THRESHOLD, SCORE_BELOW_THRESHOLD + gap};
+            }
+        }
+        start_col = 1;
+    }
+
+    // Main loop
+    for (int j = start_col; j < m; j++) {
+        uint32_t hay_char = haystack->chars[j];
+        score_t bonus = haystack->bonus[j];
+        CacheCell* col = cache + j * n;
+        CacheCell* prev = cache + (j - 1) * n;
+
+        // i == 0: uses SCORE_GAP_LEADING formula, no diagonal
+        {
+            score_t left_M = prev[0].M;
+            if (hay_char == needle->chars[0] || hay_char == needle->unicode_upper[0]) {
+                score_t score = j * SCORE_GAP_LEADING + bonus;
+                col[0] = (CacheCell){score, MAX(score, left_M + gap_row0)};
+            } else {
+                col[0] = (CacheCell){SCORE_BELOW_THRESHOLD, left_M + gap_row0};
+            }
+        }
+
+        // i == 1 to n-1 (unified loop, no special-casing last row)
+        for (int i = 1; i < n; i++) {
+            CacheCell diag = prev[i - 1];
+            score_t left_M = prev[i].M;
+            score_t gap = (i == n - 1) ? SCORE_GAP_TRAILING : SCORE_GAP_INNER;
+
+            if (hay_char == needle->chars[i] || hay_char == needle->unicode_upper[i]) {
+                score_t score = MAX(diag.M + bonus, diag.D + SCORE_MATCH_CONSECUTIVE);
+                col[i] = (CacheCell){score, MAX(score, left_M + gap)};
+            } else {
+                col[i] = (CacheCell){SCORE_BELOW_THRESHOLD, left_M + gap};
+            }
+        }
+    }
+
+    return cache[(m - 1) * n + (n - 1)].M;
 }
 
 score_t match_positions(const needle_info *needle, const char *haystack_str, int *positions) {

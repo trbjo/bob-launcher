@@ -13,7 +13,7 @@
 
 #include "constants.h"
 
-typedef int16_t Score;
+typedef int32_t score_t;
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef struct _BobLauncherAction BobLauncherAction;
 typedef struct _BobLauncherPluginBase BobLauncherPluginBase;
@@ -26,7 +26,7 @@ typedef struct {
     ResultContainer* rc;
 } ActionSetInternal;
 
-extern Score bob_launcher_action_get_relevancy(BobLauncherAction* action, BobLauncherMatch* match);
+extern score_t bob_launcher_action_get_relevancy(BobLauncherAction* action, BobLauncherMatch* match);
 extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 extern char* bob_launcher_match_get_description(BobLauncherMatch* match);
 extern GPtrArray* plugin_loader_loaded_plugins;
@@ -62,8 +62,10 @@ void action_set_free(ActionSetInternal* self) {
 HashSet* action_set_to_hashset(ActionSetInternal* self) {
     if (!self) return NULL;
 
-    hashset_merge(self->hsh, self->rc);
-    hashset_prepare(self->hsh);
+    container_flush_items(self->hsh, self->rc);
+    container_return_sheet(self->hsh, self->rc);
+    hashset_prepare_new(self->hsh);
+    container_destroy(self->rc);
     return self->hsh;
 }
 
@@ -74,18 +76,18 @@ void action_set_add_action(ActionSet* _self, BobLauncherAction* action) {
 
     if (!self || !action) return;
 
-    Score score = bob_launcher_action_get_relevancy(action, self->m);
-    if (score < SCORE_THRESHOLD) return;
+    score_t score = bob_launcher_action_get_relevancy(action, self->m);
+    if (score <= SCORE_BELOW_THRESHOLD) return;
 
     if (self->query_empty) {
         result_container_add_lazy_unique(self->rc, score,
                                          (MatchFactory)g_object_ref,
                                          g_object_ref(action), g_object_unref);
-    } else if ((score = match_score(self->si, bob_launcher_match_get_title((BobLauncherMatch*)action))) >= SCORE_THRESHOLD) {
+    } else if ((score = match_score(self->si, bob_launcher_match_get_title((BobLauncherMatch*)action))) > SCORE_BELOW_THRESHOLD) {
         result_container_add_lazy_unique(self->rc, score,
                                          (MatchFactory)g_object_ref,
                                          g_object_ref(action), g_object_unref);
-    } else if ((score = match_score(self->si, bob_launcher_match_get_description((BobLauncherMatch*)action))) >= SCORE_THRESHOLD) {
+    } else if ((score = match_score(self->si, bob_launcher_match_get_description((BobLauncherMatch*)action))) > SCORE_BELOW_THRESHOLD) {
         score = score >> 1;
         result_container_add_lazy_unique(self->rc, score,
                                          (MatchFactory)g_object_ref,

@@ -251,7 +251,7 @@ namespace BobLauncher {
 
         private Gtk.Widget? _tooltip_widget = null;
 
-        private void rehighlight_matches() {
+        public void rehighlight_matches() {
             this.description = null;
         }
 
@@ -293,6 +293,25 @@ namespace BobLauncher {
             return components;
         }
 
+        private struct PathIconMapping {
+            string path;
+            string icon;
+        }
+
+        private static PathIconMapping[] get_path_icon_mappings() {
+            return {
+                // PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DESKTOP), icon = "user-desktop-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DOCUMENTS), icon = "folder-documents-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DOWNLOAD), icon = "folder-download-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.MUSIC), icon = "folder-music-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.PICTURES), icon = "folder-pictures-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.PUBLIC_SHARE), icon = "folder-publicshare-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.TEMPLATES), icon = "folder-templates-symbolic" },
+                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.VIDEOS), icon = "folder-videos-symbolic" },
+                PathIconMapping() { path = Environment.get_home_dir(), icon = "user-home-symbolic" }
+            };
+        }
+
         public static Description generate_description_for_file(Levensteihn.StringInfo si, string file_path, GLib.DateTime? timestamp) {
             var root = new Description.container("file-description");
 
@@ -316,31 +335,38 @@ namespace BobLauncher {
             var path_builder = new StringBuilder();
             unowned Gdk.RGBA accent_color = Highlight.get_accent_color();
 
-            string search_path;
             int byte_offset = 0;
 
-            Highlight.Positions positions;
-            if (file_path.has_prefix(Environment.get_home_dir())) {
-                uint home_dir_length = Environment.get_home_dir().length;
-                while (path_builder.len < home_dir_length) {
+            Highlight.Positions positions = new Highlight.Positions(si, file_path);
+
+            string? matched_icon = null;
+            string? matched_path = null;
+
+            foreach (var mapping in get_path_icon_mappings()) {
+                if (file_path.has_prefix(mapping.path)) {
+                    matched_path = mapping.path;
+                    matched_icon = mapping.icon;
+                    break;
+                }
+            }
+
+            if (matched_path != null) {
+                while (path_builder.len < matched_path.length) {
                     path_builder.append(components.steal_index(0));
                 }
-                search_path = file_path.substring(path_builder.len);
                 byte_offset = (int)path_builder.len;
 
-                string home = "file://" + path_builder.str;
-                var home_icon = new Description("user-home-symbolic", "image", FragmentType.IMAGE,
-                                               () => BobLaunchContext.get_instance().launch_uri(home), null);
-                path_group.add_child(home_icon);
+                string uri = "file://" + path_builder.str;
+                var icon = new Description(matched_icon, "image", FragmentType.IMAGE,
+                                           () => BobLaunchContext.get_instance().launch_uri(uri), null);
+                path_group.add_child(icon);
             } else {
-                search_path = file_path;
                 var root_icon = new Description("drive-harddisk-symbolic", "image", FragmentType.IMAGE,
                                                () => BobLaunchContext.get_instance().launch_uri("file:///"), null);
                 path_group.add_child(root_icon);
             }
 
-            positions = new Highlight.Positions(si, search_path);
-            int search_path_offset = 0;
+            int current_byte_pos = byte_offset;
 
             for (int i = 0; i < components.length; i++) {
                 string component = components[i];
@@ -351,13 +377,13 @@ namespace BobLauncher {
                     desc = new Description("path-separator-symbolic", "image", FragmentType.IMAGE, null, null);
                 } else {
                     var attrs = Highlight.apply_style_range(positions, highlight_style, accent_color,
-                                                           search_path_offset, search_path_offset + component.length);
+                                                           current_byte_pos, current_byte_pos + component.length);
 
                     var target = "file://" + path_builder.str;
                     desc = new Description(component, "path-fragment", FragmentType.TEXT,
                                          () => BobLaunchContext.get_instance().launch_uri(target), attrs);
                 }
-                search_path_offset += component.length;
+                current_byte_pos += component.length;
 
                 path_group.add_child(desc);
             }

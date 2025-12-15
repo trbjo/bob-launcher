@@ -9,118 +9,81 @@
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 
+#define CACHE_LINE_SIZE 64
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+#define CACHE_ALIGNED __attribute__((aligned(CACHE_LINE_SIZE)))
+
 #define LOG2_BITMAP_BITS 14
 #define BITMAP_SIZE 256
 
+#define FUNC_PAIR_SHIFT 43
+#define MAX_FUNC_SLOTS 64
+
 #define MAX_SHEETS 256          // 2^8
 #define SHEET_SIZE 512   // 2^9
+#define UNIQUE_SENTINEL 0
 // max number of items = 256 * 512 = 131072
 
-#define HASH_BITS 32
 #define ITEM_BITS 9     // log2(512) = 9 bits for 512 items
 #define SHEET_BITS 8    // log2(256) = 8 bits for 256 sheets
-#define RELEVANCY_BITS 15
 
 #define ITEM_SHIFT 0                                           // 0
 #define SHEET_SHIFT (ITEM_BITS)                               // 9
-#define HASH_SHIFT (ITEM_BITS + SHEET_BITS)                   // 17
-#define RELEVANCY_SHIFT (ITEM_BITS + SHEET_BITS + HASH_BITS)  // 49
+#define SCORE_SHIFT (ITEM_BITS + SHEET_BITS)
+#define HASH_SHIFT 32
 
-#define MAX_FUNC_SLOTS 64
-#define NULL_FUNC_IDX 0x3F  // 6 bits all set
-
-// Bits 0-8:   item index    (9 bits) ← 512 items needs 9 bits
-// Bits 9-16:  sheet index   (8 bits) ← 256 sheets needs 8 bits
-// Bits 17-48: hash/identity (32 bits)
-// Bits 49-63: relevancy     (15 bits, signed, biased by 1024)
-
-#define PACK_MATCH(relevancy, sheet_index, item_index, hash) \
-    (((uint64_t)(item_index) << ITEM_SHIFT) | \
-     ((uint64_t)(sheet_index) << SHEET_SHIFT) | \
-     ((uint64_t)(hash) << HASH_SHIFT) | \
-     ((uint64_t)((int64_t)((relevancy) + 1024)) << RELEVANCY_SHIFT))
+#define PACK_HASH(hash, score, sheet_index, item_index) \
+    ((uint64_t)(((uint64_t)item_index) << ITEM_SHIFT) | \
+     (((uint64_t)sheet_index) << SHEET_SHIFT) | \
+     (((uint64_t)score) << SCORE_SHIFT) | \
+     (((uint64_t)hash) << HASH_SHIFT))
 
 #define ITEM_IDX(packed) (((packed) >> ITEM_SHIFT) & ((1ULL << ITEM_BITS) - 1))
 #define SHEET_IDX(packed) (((packed) >> SHEET_SHIFT) & ((1ULL << SHEET_BITS) - 1))
-#define IDENTITY(packed) (((packed) >> HASH_SHIFT) & 0xFFFFFFFF)
-#define RELEVANCY(packed) ((int16_t)(((packed) >> RELEVANCY_SHIFT) & 0x7FFF) - 1024)
 
-#define ALWAYS_INLINE inline __attribute__((always_inline))
 
-extern _Atomic uintptr_t g_match_funcs[MAX_FUNC_SLOTS];
-extern _Atomic uintptr_t g_destroy_funcs[MAX_FUNC_SLOTS];
-
-#define GET_FACTORY_USER_DATA(packed) ((void*)(((packed) & 0x7FFFFFFFFFFFFULL) << 4))
-#define GET_MATCH_FUNC_IDX(packed) ((int)(((packed) >> 51) & 0x3F))
-#define GET_DESTROY_FUNC_IDX(packed) ((int)(((packed) >> 57) & 0x3F))
-
-static inline MatchFactory GET_MATCH_FACTORY(uint64_t packed) {
-    int idx = GET_MATCH_FUNC_IDX(packed);
-    return (MatchFactory)atomic_load(&g_match_funcs[idx]);
-}
-
-static inline GDestroyNotify GET_FACTORY_DESTROY(uint64_t packed) {
-    int idx = GET_DESTROY_FUNC_IDX(packed);
-    return (idx == 0x3F) ? NULL : (GDestroyNotify)atomic_load(&g_destroy_funcs[idx]);
-}
-
-void print_function_debug_stats(void);
+typedef union {
+    struct {
+        uintptr_t match;
+        uintptr_t destroy;
+    };
+    __uint128_t packed;
+} FuncPair;
 
 
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
 typedef void (*GDestroyNotify)(void* data);
 
-typedef struct MatchNode {
-    uint64_t multipack;
-    uint32_t next;
-} MatchNode;
-
 typedef struct ResultSheet {
-    uint64_t match_pool[SHEET_SIZE];
-    uint64_t duplicate_bits[SHEET_SIZE / 64];
     size_t size;
     int global_index;
-} __attribute__((aligned(8))) ResultSheet;
+    uint64_t match_pool[SHEET_SIZE];  // Inlined - 4KB
+} ResultSheet;
 
 typedef struct ResultContainer {
-    uint64_t* items;
-    size_t size;
-    size_t items_capacity;
-    ResultSheet** sheet_pool;
-
+    uint64_t* local_items;
     ResultSheet* current_sheet;
+    size_t local_items_size;
+    int16_t bonus;
+    int match_mre_idx;
 
-    // Queue pointer
-    ResultSheet*** read;
-
-    // Group 4: Query-related data
+    ResultSheet** sheet_pool;
+    uint64_t* global_items;
+    atomic_int* global_items_size;
     needle_info* string_info;
     needle_info* string_info_spaceless;
     uint64_t event_id;
     char* query;
-
-    // Group 5: Shared pointers
     atomic_int* global_index_counter;
-    uint64_t* bitmap;
-    uint32_t* slots;
-
-    // Group 6: Node storage
-    MatchNode* all_nodes;
-    size_t nodes_count;
-    size_t nodes_capacity;
-
-    // Track merges for heuristic memory allocation
-    int merges;
-    int16_t bonus;
-
-    int match_mre_idx;
-    int destroy_mre_idx;
+    _Atomic(ResultSheet**)* read;
 } ResultContainer;
+
+FuncPair get_func_pair(uint64_t packed);
 
 void container_destroy(ResultContainer* container);
 
-bool result_container_insert(ResultContainer* container, uint32_t hash, int16_t relevancy,
+bool result_container_insert(ResultContainer* container, uint32_t hash, int32_t score,
                             MatchFactory func, void* factory_user_data,
                             GDestroyNotify destroy_func);
 
@@ -133,8 +96,8 @@ const char* result_container_get_query(ResultContainer* container);
 extern int events_ok(int event_id);
 #define result_container_is_cancelled(container) (!events_ok(((ResultContainer*)(container))->event_id))
 
-#define result_container_add_lazy_unique(container, relevancy, factory, factory_user_data, destroy_notify) \
-    result_container_insert(container, 0, relevancy, factory, factory_user_data, destroy_notify)
+#define result_container_add_lazy_unique(container, score, factory, factory_user_data, destroy_notify) \
+    result_container_insert(container, UNIQUE_SENTINEL, score, factory, factory_user_data, destroy_notify)
 
-#define result_container_add_lazy(container, hash, relevancy, func, factory_user_data, destroy_notify) \
-    result_container_insert(container, hash, relevancy, func, factory_user_data, destroy_notify)
+#define result_container_add_lazy(container, hash, score, func, factory_user_data, destroy_notify) \
+    result_container_insert(container, hash, score, func, factory_user_data, destroy_notify)

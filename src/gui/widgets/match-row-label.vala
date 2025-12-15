@@ -1,6 +1,6 @@
 namespace BobLauncher {
     internal class MatchRowLabel : Gtk.Widget {
-        private const int FADE_WIDTH = 24;
+        private const float FADE_WIDTH = 48.0f;
         private double scroll_position = 0;
         private int children_Width;
         private int current_widget_index;

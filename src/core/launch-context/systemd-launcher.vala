@@ -1,3 +1,9 @@
+[CCode (cheader_filename = "unistd.h")]
+namespace Unistd {
+    [CCode (cprefix = "", lower_case_cprefix = "", cname = "execvpe")]
+    internal static extern int execvpe (string path, [CCode (array_length = false, array_null_terminated = true)] string[] argv, [CCode (array_length = false, array_null_terminated = true)] string[] envp);
+}
+
 [CCode (cheader_filename = "access-appinfo-props.h")]
 namespace Props {
     [CCode (cname = "g_desktop_app_info_get_string_from_group", has_type_id = false)]
@@ -359,7 +365,7 @@ namespace BobLauncher {
                         Posix.close(devnull);
                     }
 
-                    execvpe(argv_duplicated[0], argv_duplicated, env);
+                    Unistd.execvpe(argv_duplicated[0], argv_duplicated, env);
 
                     Posix._exit(127);
                 }
@@ -412,7 +418,7 @@ namespace BobLauncher {
                             Posix.close(devnull);
                         }
 
-                        execvpe(argv_duplicated[0], argv_duplicated, env);
+                        Unistd.execvpe(argv_duplicated[0], argv_duplicated, env);
 
                         warning("Failed to exec %s: %s", argv_duplicated[0], strerror(errno));
                         Posix._exit(127);

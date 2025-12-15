@@ -6,52 +6,47 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 
-#define CACHE_LINE_SIZE 64
 typedef struct _BobLauncherMatch BobLauncherMatch;
 typedef BobLauncherMatch* (*MatchFactory)(void* user_data);
-
-#define ALWAYS_INLINE inline __attribute__((always_inline))
-
 
 typedef void (*GDestroyNotify)(void* data);
 
 typedef struct {
-    // Group 1: Read-mostly data
-    BobLauncherMatch** matches;
-    ResultContainer* prepared;
-    int event_id;
-    char _padding1[CACHE_LINE_SIZE - (2 * sizeof(void*) + sizeof(int))];
+    // === CACHE LINE 1 ===
+    atomic_int hash_size;           // 4B - frequent
+    int event_id;                   // 4B - never
+    uint64_t* hash_items;           // 8B - once
+    BobLauncherMatch** matches;     // 8B - once
+    uint32_t* score_items;          // 8B - once
+    atomic_int size;                // 4B - once
+    char _pad1[28];
 
-    // Group 2: Frequently updated size counter (own cache line)
-    atomic_int size;
-    char _padding2[CACHE_LINE_SIZE - sizeof(atomic_int)];
+    // === CACHE LINE 2 ===
+    atomic_int write;               // 4B - frequent
+    int _pad2;                      // 4B
+    ResultSheet** sheet_pool;       // 8B - once
+    char _pad3[48];
 
-    // Group 3: Sheet storage arrays (naturally aligned, no contention)
-    ResultSheet* sheet_pool[MAX_SHEETS];
+    // === CACHE LINE 3 ===
+    _Atomic(ResultSheet**) read;    // 8B - frequent
+    char _pad4[56];
+
+    // === CACHE LINE 4 ===
+    atomic_int global_index_counter;// 4B - medium
+    char _pad5[60];
+
+    // === Queue (each 8 pointers = own cache line) ===
     ResultSheet* unfinished_queue[MAX_SHEETS];
-
-    // Group 4: Consumer hot spot (own cache line)
-    ResultSheet** read;
-    char _padding3[CACHE_LINE_SIZE - sizeof(void*)];
-
-    // Group 5: Producer hot spot (own cache line)
-    atomic_int write;
-    char _padding4[CACHE_LINE_SIZE - sizeof(void*)];
-
-    // Group 6: Global index counter (own cache line)
-    atomic_int global_index_counter;
-    char _padding5[CACHE_LINE_SIZE - sizeof(atomic_int)];
-} __attribute__((aligned(CACHE_LINE_SIZE))) HashSet;
+} HashSet;
 
 HashSet* hashset_create(int event_id);
 void hashset_destroy(HashSet* set);
 
-void hashset_merge_prefer_hash(HashSet* set, ResultContainer* current);
-#define hashset_merge hashset_merge_prefer_hash
-void hashset_merge_prefer_insertion(HashSet* set, ResultContainer* current);
-
+void container_flush_items(HashSet* set, ResultContainer* container);
+void container_return_sheet(HashSet* set, ResultContainer* container);
+void hashset_merge_new(HashSet* set, ResultContainer* current);
 void hashset_prepare(HashSet* hashset);
-ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus);
+void hashset_prepare_new(HashSet* hashset);
+ResultContainer* hashset_create_handle(HashSet* hashset, char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless);
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int n);
-
-#define hashset_create_default_handle(set, query) hashset_create_handle(set, query, 0)
+ResultContainer* hashset_create_default_handle(HashSet* hashset, char* query);

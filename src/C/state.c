@@ -191,10 +191,10 @@ BobLauncherMatch* state_selected_target() {
 }
 
 int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, int selected_index) {
-    // if (new_provider->event_id < state_providers[state_sf]->event_id) {
-    //     thread_pool_run((TaskFunc)hashset_destroy, new_provider, NULL);
-    //     return 0;
-    // }
+    if (new_provider->event_id < state_providers[state_sf]->event_id) {
+        thread_pool_run((TaskFunc)hashset_destroy, new_provider, NULL);
+        return 0;
+    }
 
     state_selected_indices[what] = selected_index < 0 ? 0 :
                                               (selected_index >= new_provider->size ?
