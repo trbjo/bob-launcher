@@ -13,9 +13,6 @@ namespace MatchScore {
     [CCode (cname = "SCORE_LOWEST")]
     public const Score LOWEST;
 
-    [CCode (cname = "SCORE_TIEBREAKER")]
-    public const Score TIEBREAKER;
-
     [CCode (cname = "SCORE_DECREMENT_MINOR")]
     public const Score DECREMENT_MINOR;
 
@@ -42,9 +39,6 @@ namespace MatchScore {
 
     [CCode (cname = "SCORE_BELOW_THRESHOLD")]
     public const Score BELOW_THRESHOLD;
-
-    [CCode (cname = "SCORE_THRESHOLD")]
-    public const Score THRESHOLD;
 
     [CCode (cname = "SCORE_ABOVE_THRESHOLD")]
     public const Score ABOVE_THRESHOLD;

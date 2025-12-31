@@ -1,6 +1,3 @@
-[CCode (cprefix = "", lower_case_cprefix = "", cheader_filename = "unistd.h", cname = "execvpe")]
-extern int execvpe (string path, [CCode (array_length = false, array_null_terminated = true)] string[] argv, [CCode (array_length = false, array_null_terminated = true)] string[] envp);
-
 namespace BobLauncher {
     public class BobLaunchContext : Object {
         private static BobLaunchContext? instance = null;

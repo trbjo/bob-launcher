@@ -8,8 +8,6 @@
 #include <stdio.h>
 #include <stdint.h>
 
-extern int events_ok(int event_id);
-
 CACHE_ALIGNED __uint128_t g_func_pairs[MAX_FUNC_SLOTS];
 
 static inline size_t GET_FUNC_IDX(uint64_t packed) {
@@ -75,25 +73,14 @@ static inline bool grab_fresh_sheet(ResultContainer* container) {
         return false;
     }
 
-    ResultSheet* sheet = container->sheet_pool[global_index];
-
+    ResultSheet* sheet = malloc(sizeof(ResultSheet));
     if (!sheet) {
-        sheet = malloc(sizeof(ResultSheet));
-        if (!sheet) {
-            return false;
-        }
-
-        sheet->match_pool = malloc(SHEET_SIZE * sizeof(uint64_t));
-        if (!sheet->match_pool) {
-            free(sheet);
-            return false;
-        }
-
-        sheet->size = 0;
-        sheet->global_index = global_index;
-        container->sheet_pool[global_index] = sheet;
+        return false;
     }
 
+    sheet->size = 0;
+    sheet->global_index = global_index;
+    container->sheet_pool[global_index] = sheet;
     container->current_sheet = sheet;
     return true;
 }

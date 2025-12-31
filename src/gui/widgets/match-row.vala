@@ -272,6 +272,8 @@ namespace BobLauncher {
                 description.set_text(description_string, desc_attrs);
             } else {
                 description.set_description(rich_description);
+                description.add_css_class("description");
+
                 description_string = null;
                 description_positions = null;
             }

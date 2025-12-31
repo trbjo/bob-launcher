@@ -1,16 +1,10 @@
 #define _GNU_SOURCE
 #include <stdio.h>
-#include <unistd.h>
 #include <dlfcn.h>
 #include <stdlib.h>
-#include <limits.h>
-#include <string.h>
 #include <sys/wait.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <errno.h>
 #include <stdint.h>
-#include <libgen.h>
+#include <sched.h>
 
 #include "systemd_service.h"
 #include "systemd_service_utils.h"

@@ -9,19 +9,19 @@ namespace BobLauncher {
         public unowned string get_query ();
 
         [CCode (cname = "result_container_add_lazy_unique")]
-        public void add_lazy_unique (int16 relevancy, owned MatchFactory factory);
+        public void add_lazy_unique (int32 relevancy, owned MatchFactory factory);
 
         [CCode (cname = "result_container_add_lazy")]
-        public void add_lazy (uint32 hash, int16 relevancy, owned MatchFactory factory);
+        public void add_lazy (uint32 hash, int32 relevancy, owned MatchFactory factory);
 
         [CCode (cname = "result_container_has_match")]
         public bool has_match (string? haystack);
 
         [CCode (cname = "result_container_match_score")]
-        public int16 match_score (string? haystack);
+        public int32 match_score (string? haystack);
 
         [CCode (cname = "result_container_match_score_spaceless")]
-        public int16 match_score_spaceless (string? haystack);
+        public int32 match_score_spaceless (string? haystack);
 
         [CCode (cname = "result_container_is_cancelled")]
         public bool is_cancelled ();

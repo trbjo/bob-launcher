@@ -121,7 +121,7 @@ int haystack_update(haystack_info* hay, const char* str, uint16_t common_chars,
     unsigned char last_ch = (pos > 0) ? (unsigned char)hay->chars[pos - 1] : '/';
     int byte_offset = common_chars;
 
-    while (*s && pos < MATCH_MAX_LEN) {
+    for (; pos < MATCH_MAX_LEN && *s; pos++) {
         int char_len;
         uint32_t codepoint = utf8_to_codepoint((const char*)s, &char_len);
 
@@ -140,7 +140,6 @@ int haystack_update(haystack_info* hay, const char* str, uint16_t common_chars,
         last_ch = (unsigned char)codepoint;
         s += char_len;
         byte_offset += char_len;
-        pos++;
     }
 
     index[byte_offset] = (haystack_index){pos, n_idx};
@@ -281,10 +280,10 @@ score_t match_score_with_haystack(const needle_info* needle, haystack_info* hays
 }
 
 score_t match_score_column_major(
-    const needle_info* needle,
-    const haystack_info* haystack,
+    const needle_info* restrict needle,
+    const haystack_info* restrict haystack,
     int start_col,
-    CacheCell* cache)
+    CacheCell* restrict cache)
 {
     const int n = needle->len;
     const int m = haystack->len;

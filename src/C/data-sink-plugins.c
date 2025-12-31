@@ -43,24 +43,6 @@ static int compare_ascending(const void* a, const void* b) {
     return result;
 }
 
-static int compare_descending(const void* a, const void* b) {
-    int idx_a = *(const int*)a;
-    int idx_b = *(const int*)b;
-
-    BobLauncherSearchBase* plg_a = (BobLauncherSearchBase*)plugin_loader_search_providers->pdata[idx_a];
-    BobLauncherSearchBase* plg_b = (BobLauncherSearchBase*)plugin_loader_search_providers->pdata[idx_b];
-
-    char* title_a = bob_launcher_match_get_title((BobLauncherMatch*)plg_a);
-    char* title_b = bob_launcher_match_get_title((BobLauncherMatch*)plg_b);
-
-    int result = strcmp(title_b, title_a);
-
-    free(title_a);
-    free(title_b);
-
-    return result;
-}
-
 int data_sink_find_plugin_by_name(const char* query) {
     int length = vala_g_ptr_array_get_length(plugin_loader_search_providers);
     int* indices = malloc(length * sizeof(int));
@@ -113,7 +95,7 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
             continue;
         }
 
-        int16_t score = query_empty || match_score(si, title);
+        int32_t score = query_empty || match_score(si, title);
         free(title);
 
         result_container_add_lazy_unique(rc, score, (MatchFactory)g_object_ref, plg, NULL);

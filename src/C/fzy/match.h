@@ -6,9 +6,8 @@
 
 #include "constants.h"
 
-typedef int16_t score_t;
+typedef int32_t score_t;
 
-#define MATCH_MAX_LEN 1024
 #define INITIAL_CAPACITY 128
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))

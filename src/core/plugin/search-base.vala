@@ -1,6 +1,5 @@
 namespace BobLauncher {
     public abstract class SearchBase : PluginBase {
-        public virtual bool prefer_insertion_order { get { return false; } }
         public virtual uint shard_count { get; set; default = 1; }
         public uint update_interval { get; set; }
         public bool enabled_in_default_search { get; set; }

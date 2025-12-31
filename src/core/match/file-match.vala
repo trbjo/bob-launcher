@@ -16,6 +16,7 @@ namespace BobLauncher {
             FileAttribute.STANDARD_SYMLINK_TARGET + "," +
             FileAttribute.OWNER_USER + "," +
             FileAttribute.OWNER_GROUP + "," +
+            FileAttribute.TIME_ACCESS + "," +
             FileAttribute.THUMBNAIL_PATH_XXLARGE + "," +
             FileAttribute.THUMBNAILING_FAILED;
 
@@ -181,7 +182,14 @@ namespace BobLauncher {
                 box.append(size_label);
             }
 
-            if (file_info.has_attribute(FileAttribute.TIME_MODIFIED)) {
+            if (file_info.has_attribute(FileAttribute.TIME_ACCESS)) {
+                var accessed = file_info.get_access_date_time();
+                var now = new GLib.DateTime.now_local();
+                string formatted_time = Utils.format_modification_time(now, accessed);
+                var time_label = new Gtk.Label(formatted_time);
+                time_label.xalign = 0;
+                box.append(time_label);
+            } else if (file_info.has_attribute(FileAttribute.TIME_MODIFIED)) {
                 var modified = file_info.get_modification_date_time();
                 var now = new GLib.DateTime.now_local();
                 string formatted_time = Utils.format_modification_time(now, modified);
@@ -211,16 +219,15 @@ namespace BobLauncher {
             }
         }
 
-
-
-
         private static unowned AppSettings.UI ui_settings;
         private static Highlight.Style highlight_style = Highlight.Style.COLOR;
+
+        private static HashTable<string, string>? path_icon_cache = null;
+        private static string[]? sorted_paths = null;
 
         static construct {
             ui_settings = AppSettings.get_default().ui;
 
-            // Load highlight style from settings
             var settings = new GLib.Settings(BOB_LAUNCHER_APP_ID + ".ui");
             var style_string = settings.get_string("highlight-style");
             highlight_style = parse_highlight_style(style_string);
@@ -228,6 +235,67 @@ namespace BobLauncher {
                 var new_style = settings.get_string("highlight-style");
                 highlight_style = parse_highlight_style(new_style);
             });
+
+            init_path_icon_cache();
+        }
+
+        private static void init_path_icon_cache() {
+            path_icon_cache = new HashTable<string, string>(str_hash, str_equal);
+
+            const UserDirectory[] DIRS = {
+                UserDirectory.DOCUMENTS,
+                UserDirectory.DOWNLOAD,
+                UserDirectory.MUSIC,
+                UserDirectory.PICTURES,
+                UserDirectory.PUBLIC_SHARE,
+                UserDirectory.TEMPLATES,
+                UserDirectory.VIDEOS
+            };
+
+            const string[] ICONS = {
+                "folder-documents-symbolic",
+                "folder-download-symbolic",
+                "folder-music-symbolic",
+                "folder-pictures-symbolic",
+                "folder-publicshare-symbolic",
+                "folder-templates-symbolic",
+                "folder-videos-symbolic"
+            };
+
+            for (int i = 0; i < DIRS.length; i++) {
+                string? path = Environment.get_user_special_dir(DIRS[i]);
+                if (path != null) {
+                    path_icon_cache.insert(path, ICONS[i]);
+                }
+            }
+
+            path_icon_cache.insert(Environment.get_home_dir(), "user-home-symbolic");
+
+            var paths = path_icon_cache.get_keys();
+            sorted_paths = new string[paths.length()];
+            int i = 0;
+            foreach (unowned string p in paths) {
+                sorted_paths[i++] = p;
+            }
+
+            qsort_with_data<string>(sorted_paths, sizeof(string), (a, b) => {
+                return b.length - a.length;
+            });
+        }
+
+        private static bool find_path_icon(string file_path, out string? matched_path, out string? matched_icon) {
+            matched_path = null;
+            matched_icon = null;
+
+            // Iterate through paths longest-first to find the most specific match
+            foreach (unowned string path in sorted_paths) {
+                if (file_path.has_prefix(path)) {
+                    matched_path = path;
+                    matched_icon = path_icon_cache.lookup(path);
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static Highlight.Style parse_highlight_style(string style) {
@@ -293,25 +361,6 @@ namespace BobLauncher {
             return components;
         }
 
-        private struct PathIconMapping {
-            string path;
-            string icon;
-        }
-
-        private static PathIconMapping[] get_path_icon_mappings() {
-            return {
-                // PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DESKTOP), icon = "user-desktop-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DOCUMENTS), icon = "folder-documents-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.DOWNLOAD), icon = "folder-download-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.MUSIC), icon = "folder-music-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.PICTURES), icon = "folder-pictures-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.PUBLIC_SHARE), icon = "folder-publicshare-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.TEMPLATES), icon = "folder-templates-symbolic" },
-                PathIconMapping() { path = Environment.get_user_special_dir(UserDirectory.VIDEOS), icon = "folder-videos-symbolic" },
-                PathIconMapping() { path = Environment.get_home_dir(), icon = "user-home-symbolic" }
-            };
-        }
-
         public static Description generate_description_for_file(Levensteihn.StringInfo si, string file_path, GLib.DateTime? timestamp) {
             var root = new Description.container("file-description");
 
@@ -342,15 +391,7 @@ namespace BobLauncher {
             string? matched_icon = null;
             string? matched_path = null;
 
-            foreach (var mapping in get_path_icon_mappings()) {
-                if (file_path.has_prefix(mapping.path)) {
-                    matched_path = mapping.path;
-                    matched_icon = mapping.icon;
-                    break;
-                }
-            }
-
-            if (matched_path != null) {
+            if (find_path_icon(file_path, out matched_path, out matched_icon)) {
                 while (path_builder.len < matched_path.length) {
                     path_builder.append(components.steal_index(0));
                 }

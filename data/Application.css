@@ -226,7 +226,7 @@ window#launcher:backdrop match-row-label {
     min-height: 1px;
 }
 
-match-row match-row-label.description text-image {
+match-row match-row-label text-image {
     min-width: 12px;
     min-height: 12px;
 }
@@ -235,8 +235,9 @@ match-row match-row-label.description {
     font-size: 9pt;
 }
 
-match-row match-row-label.description > box > box.description-container .description-text,
-match-row match-row-label.description box .timestamp {
+match-row match-row-label.description > match-row-label.description-container .description-text,
+match-row match-row-label.description match-row-label .timestamp {
+    margin-right: 4px;
     font-size: 0;
     opacity: 0;
     transition: font-size 300ms, opacity 300ms ease 0;
@@ -244,35 +245,35 @@ match-row match-row-label.description box .timestamp {
 
 
 /*match-row match-row-label.description > box > box.uptime-container,*/
-match-row match-row-label.description > box > box.state-container,
-match-row match-row-label.description > box > box.pid-container,
-match-row match-row-label.description > box > box.flags-container {
+match-row match-row-label.description > match-row-label.state-container,
+match-row match-row-label.description > match-row-label.pid-container,
+match-row match-row-label.description > match-row-label.flags-container {
     min-width: 30px;
 }
 
-match-row match-row-label.description > box > box > label {
+match-row match-row-label.description > match-row-label > label {
     /*background: blue;*/
     margin-left: 2px;
     margin-right: 2px;
 }
 
 
-match-row match-row-label.description > box > box.cpu-container {
+match-row match-row-label.description > match-row-label.cpu-container {
     min-width: 54px;
 }
-match-row match-row-label.description > box > box.state-container {
+match-row match-row-label.description > match-row-label.state-container {
     min-width: 44px;
 }
-match-row match-row-label.description > box.process-description > box.memory-container {
+match-row match-row-label.description.process-description > match-row-label.memory-container {
     min-width: 80px;
 }
 
-match-row match-row-label.description > box > box:first-child {
+match-row match-row-label.description > match-row-label:first-child {
     margin-left: 0;
 }
 
-match-row match-row-label.description > box > box.description-container:hover .description-text,
-match-row match-row-label.description box.timestamp-group:hover .timestamp {
+match-row match-row-label.description > match-row-label.description-container:hover .description-text,
+match-row match-row-label.description match-row-label.timestamp-group:hover .timestamp {
     font-size: 9pt;
     transition: font-size 300ms, opacity 300ms ease 200ms;
     opacity: 1;

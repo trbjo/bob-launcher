@@ -11,13 +11,8 @@ namespace BobLauncher {
             Threads.run((owned)task);
         }
 
-        public static void join(ulong thread_id) {
-            Threads.join(thread_id);
-        }
-
         [CCode (cheader_filename = "immintrin.h", cname = "_mm_pause", has_type_id=false)]
         public static extern void pause();
-
 
         [CCode (cheader_filename = "stdatomic.h", cname = "atomic_load", has_type_id=false)]
         public static extern int atomic_load(ref int ptr);

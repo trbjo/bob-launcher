@@ -1,5 +1,5 @@
 namespace BobLauncher {
-    public struct Score : int16 { }
+    public struct Score : int32 { }
     public const string BOB_LAUNCHER_APP_ID = "io.github.trbjo.bob.launcher";
     public const string BOB_LAUNCHER_OBJECT_PATH = "/io/github/trbjo/bob/launcher";
 
@@ -46,9 +46,9 @@ namespace BobLauncher {
         }
 
         private static void initialize(int listen_fd) {
-            for (int i = 0; i < Threads.num_cores(); i++) {
-                Threads.new_thread();
-            }
+            int num_cores = Threads.num_cores();
+            Threads.init(num_cores - 1);
+            Threads.pin_caller();
 
             Gtk.init();
             Gtk.Settings.get_default().gtk_enable_accels = false;
@@ -71,6 +71,7 @@ namespace BobLauncher {
             uint8[] socket_array = SystemdServiceUtils.make_abstract_socket_name(socket_addr_sync);
             SystemdServiceUtils.signal_ready(socket_array);
         }
+
         private static void select_plugin(LauncherWindow win, string plugin, string? query = null) {
             win.set_visible(Controller.select_plugin(plugin, query));
         }
