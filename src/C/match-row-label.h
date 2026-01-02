@@ -1,4 +1,3 @@
-/* match-row-label.h */
 #ifndef BOB_LAUNCHER_MATCH_ROW_LABEL_H
 #define BOB_LAUNCHER_MATCH_ROW_LABEL_H
 

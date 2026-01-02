@@ -1,4 +1,8 @@
 namespace BobLauncher {
+    public struct Score : int32 { }
+    public const string BOB_LAUNCHER_APP_ID = "io.github.trbjo.bob.launcher";
+    public const string BOB_LAUNCHER_OBJECT_PATH = "/io/github/trbjo/bob/launcher";
+
     public abstract class SourceMatch : Match {
         public signal void executed(bool success);
         protected SourceMatch() { }

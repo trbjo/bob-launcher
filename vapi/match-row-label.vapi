@@ -1,6 +1,5 @@
-[CCode (cheader_filename = "match-row-label.h")]
 namespace BobLauncher {
-    [CCode (cname = "BobLauncherMatchRowLabel", type_id = "bob_launcher_match_row_label_get_type()")]
+    [CCode (cheader_filename = "match-row-label.h", cname = "BobLauncherMatchRowLabel", type_id = "bob_launcher_match_row_label_get_type()")]
     public class MatchRowLabel : Gtk.Widget {
         [CCode (cname = "bob_launcher_match_row_label_new")]
         public MatchRowLabel(string[] css_classes);
