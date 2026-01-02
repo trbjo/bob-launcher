@@ -476,9 +476,7 @@ on_query_tooltip(BobLauncherMatchRow *self, gint x, gint y, gboolean keyboard_to
     return TRUE;
 }
 
-static BobLauncherMatch *
-match_finder(gdouble x, gdouble y, gpointer user_data)
-{
+static BobLauncherMatch * match_finder(gdouble x, gdouble y, gpointer user_data) {
     BobLauncherMatchRow *self = BOB_LAUNCHER_MATCH_ROW(user_data);
 
     if (state_sf != bob_launcher_SEARCHING_FOR_SOURCES)
@@ -807,9 +805,6 @@ bob_launcher_match_row_new(gint abs_index)
 void
 bob_launcher_match_row_update_match(BobLauncherMatchRow *self, needle_info *si)
 {
-    g_return_if_fail(BOB_LAUNCHER_IS_MATCH_ROW(self));
-    g_return_if_fail(si != NULL);
-
     BobLauncherMatchRowPrivate *priv = self->priv;
 
     BobLauncherMatch *m = hashset_get_match_at(state_current_provider(), self->abs_index);
@@ -876,9 +871,6 @@ bob_launcher_match_row_update(BobLauncherMatchRow *self,
                               gboolean row_selected,
                               gint new_event)
 {
-    g_return_if_fail(BOB_LAUNCHER_IS_MATCH_ROW(self));
-    g_return_if_fail(si != NULL);
-
     gint prev_abs_index = atomic_exchange(&self->abs_index, new_abs_index);
     gint prev_event = atomic_exchange(&self->event_id, new_event);
 
