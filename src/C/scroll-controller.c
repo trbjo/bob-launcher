@@ -1,7 +1,7 @@
 #include "scroll-controller.h"
 #include <gtk/gtk.h>
 #include <math.h>
-#include <stdatomic.h>
+#include <state.h>
 
 typedef struct _BobLauncherResultBox BobLauncherResultBox;
 typedef struct _BobLauncherMatchRow BobLauncherMatchRow;
@@ -10,22 +10,18 @@ typedef struct _BobLauncherLauncherWindow BobLauncherLauncherWindow;
 extern BobLauncherLauncherWindow *bob_launcher_app_main_win;
 extern BobLauncherMatchRow **bob_launcher_result_box_row_pool;
 extern void controller_goto_match(int delta);
-extern void state_update_layout(int searching_for);
 
-#define SEARCHING_FOR_CURRENT -1
-
-static atomic_uint scroll_tick_id = 0;
+static int scroll_tick_id = 0;
 static double remaining_velocity = 0.0;
 static double accumulated_scroll = 0.0;
 static double initial_velocity = 0.0;
 static double scroll_accumulator = 0.0;
-static gboolean scrolling_down = TRUE;
+static bool scrolling_down = true;
 static double current_item_height = 0.0;
 
-void
-bob_launcher_scroll_controller_reset(void)
-{
-    guint prev = atomic_exchange(&scroll_tick_id, 0);
+void bob_launcher_scroll_controller_reset(void) {
+    int prev = scroll_tick_id;
+    scroll_tick_id = 0;
     if (prev != 0) {
         gtk_widget_remove_tick_callback(GTK_WIDGET(bob_launcher_app_main_win), prev);
     }
@@ -34,22 +30,31 @@ bob_launcher_scroll_controller_reset(void)
     accumulated_scroll = 0.0;
 }
 
-static gboolean
-tick_callback(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
+static bool tick_callback(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
 {
     (void)widget;
     (void)frame_clock;
     (void)user_data;
 
+    if (current_item_height <= 0.0) {
+        scroll_tick_id = 0;
+        return false;
+    }
+
     double velocity_ratio = remaining_velocity / current_item_height;
+    if (velocity_ratio <= 0.0) {
+        scroll_tick_id = 0;
+        return false;
+    }
+
     double items_to_scroll = log10(velocity_ratio);
 
     if (items_to_scroll < 0.45) {
         accumulated_scroll = 0.0;
         remaining_velocity = 0.0;
         initial_velocity = 0.0;
-        atomic_store(&scroll_tick_id, 0);
-        return FALSE;
+        scroll_tick_id = 0;
+        return false;
     }
 
     if (items_to_scroll > 1.0 || scroll_accumulator > 1.0) {
@@ -58,26 +63,27 @@ tick_callback(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
         controller_goto_match(scrolling_down ? items : -items);
         remaining_velocity -= current_item_height * items;
         scroll_accumulator = 0.0;
-        state_update_layout(SEARCHING_FOR_CURRENT);
+        state_update_layout(CURRENT_CATEGORY);
     } else {
         scroll_accumulator += pow(scroll_accumulator, 4.0) + pow(items_to_scroll - floor(items_to_scroll), 4.0);
     }
 
-    return TRUE;
+    return true;
 }
 
-static gboolean
+static bool
 handle_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data)
 {
     (void)controller;
     (void)dx;
     (void)user_data;
 
-    gboolean local_direction = dy > 0;
+    bool local_direction = dy > 0;
 
     if (local_direction != scrolling_down) {
         scrolling_down = local_direction;
-        guint prev = atomic_exchange(&scroll_tick_id, 0);
+        int prev = scroll_tick_id;
+        scroll_tick_id = 0;
         if (prev != 0) {
             gtk_widget_remove_tick_callback(GTK_WIDGET(bob_launcher_app_main_win), prev);
         }
@@ -87,6 +93,11 @@ handle_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpoint
     }
 
     accumulated_scroll += dy;
+
+    if (bob_launcher_result_box_row_pool == NULL || bob_launcher_result_box_row_pool[0] == NULL) {
+        return true;
+    }
+
     current_item_height = (double)gtk_widget_get_height(GTK_WIDGET(bob_launcher_result_box_row_pool[0]));
 
     if (accumulated_scroll >= current_item_height) {
@@ -99,8 +110,8 @@ handle_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpoint
         accumulated_scroll += current_item_height;
     }
 
-    state_update_layout(SEARCHING_FOR_CURRENT);
-    return TRUE;
+    state_update_layout(CURRENT_CATEGORY);
+    return true;
 }
 
 static void
@@ -113,10 +124,8 @@ handle_decelerate(GtkEventControllerScroll *controller, double vel_x, double vel
     initial_velocity += fabs(vel_y);
     remaining_velocity += fabs(vel_y);
 
-    guint expected = 0;
-    if (atomic_compare_exchange_strong(&scroll_tick_id, &expected, 1)) {
-        guint id = gtk_widget_add_tick_callback(GTK_WIDGET(bob_launcher_app_main_win), tick_callback, NULL, NULL);
-        atomic_store(&scroll_tick_id, id);
+    if (scroll_tick_id == 0) {
+        scroll_tick_id = gtk_widget_add_tick_callback(GTK_WIDGET(bob_launcher_app_main_win), (GtkTickCallback)tick_callback, NULL, NULL);
     }
 }
 

@@ -270,9 +270,9 @@ bob_launcher_query_container_measure(GtkWidget *widget, GtkOrientation orientati
     *minimum_baseline = *natural_baseline = -1;
 
     if (orientation == GTK_ORIENTATION_VERTICAL) {
-        int height;
-        pango_layout_get_size(layouts[TEXT_REPR_EMPTY], NULL, &height);
-        self->selected_row_height = height / PANGO_SCALE;
+        // int height;
+        // pango_layout_get_size(layouts[TEXT_REPR_EMPTY], NULL, &height);
+        pango_layout_get_pixel_size(layouts[TEXT_REPR_EMPTY], NULL, &self->selected_row_height);
         *minimum = *natural = self->selected_row_height;
     } else {
         *minimum = *natural = 0;
@@ -290,6 +290,7 @@ bob_launcher_query_container_size_allocate(GtkWidget *widget, int width, int hei
         int label_width = width - glass_width - draggable_width;
         int layout_width = label_width * PANGO_SCALE;
         pango_layout_set_width(layouts[i], layout_width);
+        pango_layout_set_height(layouts[i], -1);
     }
 
     int cursor_width;

@@ -7,7 +7,7 @@ namespace Unistd {
 [CCode (cheader_filename = "access-appinfo-props.h")]
 namespace Props {
     [CCode (cname = "g_desktop_app_info_get_string_from_group", has_type_id = false)]
-    public static extern string? desktop_app_info_get_string_from_group (GLib.DesktopAppInfo info, string group_name, string key);
+    private static extern string? desktop_app_info_get_string_from_group (GLib.DesktopAppInfo info, string group_name, string key);
 }
 
 namespace BobLauncher {

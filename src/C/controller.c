@@ -23,8 +23,8 @@ typedef struct _BobLauncherAppSettingsUI BobLauncherAppSettingsUI;
 struct _BobLauncherMatchRow {
     GtkWidget parent_instance;
     void* priv;
-    gint abs_index;
-    gint event_id;
+    int abs_index;
+    int event_id;
 };
 
 typedef struct {

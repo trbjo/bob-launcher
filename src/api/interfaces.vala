@@ -7,14 +7,6 @@ namespace BobLauncher {
         public abstract File get_file();
     }
 
-    internal interface ILaunchContext : GLib.Object {
-        public abstract bool launch_files(List<File> files, string[]? env = null);
-        public abstract bool launch_uris(List<string> uris, string[]? env = null);
-        public abstract bool launch_with_files(AppInfo app_info, List<File>? files = null, string? action = null, string[]? env = null);
-        public abstract bool launch_with_uris(AppInfo app_info, List<string>? uris = null, string? action = null, string[]? env = null);
-        public abstract bool launch_command(string identifier, string[] argv, string[]? env = null, bool blocking = false, bool needs_terminal = false);
-    }
-
     public interface ITextMatch : GLib.Object {
         public abstract string get_text();
     }

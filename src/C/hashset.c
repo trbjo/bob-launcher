@@ -243,8 +243,12 @@ static inline bool barrier_check_last(HashSet* s, int* bi) {
 }
 
 static inline void barrier_spin(HashSet* s, int bi) {
+    volatile unsigned long dummy = 1;
     while (atomic_load(&s->bar[bi ^ 1].v) != 0) {
-        _mm_pause();
+        dummy+=dummy;
+        dummy^=dummy + 1;
+        dummy+=dummy;
+        dummy^=dummy + 1;
     }
 }
 
@@ -276,7 +280,7 @@ static inline void parallel_prefix_sum(HashSet* set, const int tid, uint32_t buc
     }
 }
 
-void merge_hashset_parallel(HashSet* set, int tid) {
+int merge_hashset_parallel(HashSet* set, int tid) {
     uint32_t bucket[256] = {0};
     uint16_t* bucket16 = (uint16_t*)bucket;  // use first 512 bytes for counting
 
@@ -353,9 +357,11 @@ void merge_hashset_parallel(HashSet* set, int tid) {
         set->score_items = dest;
         set->matches = (BobLauncherMatch**)(set->combined + n);
         atomic_fetch_add(&set->size, n - local_dups - INITIAL_UNFINISHED);
+        return 1;
     } else if (local_dups) {
         atomic_fetch_sub(&set->size, local_dups);
     }
+    return 0;
 }
 
 void hashset_prepare_new(HashSet* set) {

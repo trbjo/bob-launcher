@@ -1,11 +1,14 @@
-#define _GNU_SOURCE
 #include <gtk/gtk.h>
+#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 #include <glib-unix.h>
 #include <sys/socket.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #define SOCKET_ADDR_SYNC "io.github.trbjo.bob.launcher.sync"
 
@@ -36,10 +39,10 @@ static GMainLoop *main_loop = NULL;
 BobLauncherLauncherWindow *bob_launcher_app_main_win = NULL;
 static BobLauncherBobLaunchContext *launcher = NULL;
 static int listen_fd = -1;
-static guint listen_source_id = 0;
+static uint listen_source_id = 0;
 
 static void toggle_visibility(void) {
-    gboolean visible = gtk_widget_get_visible(GTK_WIDGET(bob_launcher_app_main_win));
+    bool visible = gtk_widget_get_visible(GTK_WIDGET(bob_launcher_app_main_win));
     gtk_widget_set_visible(GTK_WIDGET(bob_launcher_app_main_win), !visible);
 }
 
@@ -195,7 +198,7 @@ static void handle_connection(int client_fd) {
     free(msg);
 }
 
-static gboolean on_incoming_connection(gint fd, GIOCondition condition, gpointer data) {
+static bool on_incoming_connection(int fd, GIOCondition condition, gpointer data) {
     (void)condition;
     (void)data;
 
@@ -208,29 +211,23 @@ static gboolean on_incoming_connection(gint fd, GIOCondition condition, gpointer
     return G_SOURCE_CONTINUE;
 }
 
-static void quit(void) {
+static void quit() {
     if (main_loop) {
         g_main_loop_quit(main_loop);
     }
 }
 
-static gboolean on_sigint(gpointer data) {
+static bool on_close_signal(gpointer data) {
     (void)data;
     quit();
-    return G_SOURCE_REMOVE;
+    return false;
 }
 
-static gboolean on_sigterm(gpointer data) {
-    (void)data;
-    quit();
-    return G_SOURCE_REMOVE;
-}
-
-static gboolean on_close_request(GtkWindow *window, gpointer data) {
+static bool on_close_request(GtkWindow *window, gpointer data) {
     (void)window;
     (void)data;
     quit();
-    return FALSE;
+    return false;
 }
 
 static void make_abstract_socket_name(const char *name, uint8_t *out, size_t *out_len) {
@@ -263,7 +260,7 @@ static void initialize(int fd) {
     g_signal_connect(bob_launcher_app_main_win, "close-request", G_CALLBACK(on_close_request), NULL);
 
     listen_fd = fd;
-    listen_source_id = g_unix_fd_add(listen_fd, G_IO_IN, on_incoming_connection, NULL);
+    listen_source_id = g_unix_fd_add(listen_fd, G_IO_IN, (GUnixFDSourceFunc)on_incoming_connection, NULL);
 
     uint8_t socket_array[256];
     size_t socket_array_len;
@@ -298,8 +295,8 @@ static void shutdown_app(void) {
 int run_launcher(int socket_fd) {
     main_loop = g_main_loop_new(NULL, FALSE);
 
-    g_unix_signal_add(SIGINT, on_sigint, NULL);
-    g_unix_signal_add(SIGTERM, on_sigterm, NULL);
+    g_unix_signal_add(SIGINT, (GSourceFunc)on_close_signal, NULL);
+    g_unix_signal_add(SIGTERM, (GSourceFunc)on_close_signal, NULL);
 
     initialize(socket_fd);
 

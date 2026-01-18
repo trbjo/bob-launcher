@@ -62,7 +62,7 @@ void hashset_merge_new(HashSet* set, ResultContainer* current);
 void hashset_prepare(HashSet* hashset);
 void hashset_prepare_new(HashSet* hashset);
 void hashset_prepare_new_parallel(HashSet* set);
-void merge_hashset_parallel(HashSet* set, int tid);
+int merge_hashset_parallel(HashSet* set, int tid);
 
 
 

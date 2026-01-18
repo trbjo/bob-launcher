@@ -1,4 +1,10 @@
 namespace BobLauncher {
+    [CCode (cheader_filename = "access-appinfo-props.h")]
+    namespace Props {
+        [CCode (cname = "g_desktop_app_info_get_string_from_group", has_type_id = false)]
+        private static extern string? desktop_app_info_get_string_from_group (GLib.DesktopAppInfo info, string group_name, string key);
+    }
+
     namespace BobAppInfo {
         public static string get_string_from_group(GLib.DesktopAppInfo info, string group_name, string key) {
             return Props.desktop_app_info_get_string_from_group(info, group_name, key);

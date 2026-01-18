@@ -155,7 +155,7 @@ namespace PluginLoader {
         return "No description provided";
     }
 
-    public static ulong initialize_plugin(BobLauncher.PluginBase plg, GLib.Settings settings) {
+    private static ulong initialize_plugin(BobLauncher.PluginBase plg, GLib.Settings settings) {
         plg.title = get_plugin_summary(settings);
         plg.description = get_settings_description(settings);
 
@@ -323,11 +323,11 @@ namespace PluginLoader {
         search_providers.sort(shard_comp);
     }
 
-    public static int alpha_comp(BobLauncher.PluginBase a, BobLauncher.PluginBase b) {
+    private static int alpha_comp(BobLauncher.PluginBase a, BobLauncher.PluginBase b) {
         return strcmp(a.get_title(), b.get_title());
     }
 
-    public static int shard_comp(BobLauncher.SearchBase? a, BobLauncher.SearchBase? b) {
+    private static int shard_comp(BobLauncher.SearchBase? a, BobLauncher.SearchBase? b) {
         if (a == null && b == null) return 0;
         if (a == null) return -1;
         if (b == null) return 1;

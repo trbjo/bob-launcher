@@ -2,6 +2,8 @@
 #define BOB_LAUNCHER_MATCH_ROW_LABEL_H
 
 #include <gtk/gtk.h>
+#define GTK_WIDGET(obj) ((GtkWidget*)obj)
+#include "description.h"
 
 G_BEGIN_DECLS
 
@@ -11,21 +13,25 @@ G_BEGIN_DECLS
 
 typedef struct _BobLauncherMatchRowLabel BobLauncherMatchRowLabel;
 typedef struct _BobLauncherMatchRowLabelClass BobLauncherMatchRowLabelClass;
-typedef struct _BobLauncherDescription BobLauncherDescription;
 typedef struct _BobLauncherTextImage BobLauncherTextImage;
 
 GType bob_launcher_match_row_label_get_type(void) G_GNUC_CONST;
 
-BobLauncherMatchRowLabel *bob_launcher_match_row_label_new(gchar **css_classes, gint css_classes_length1);
+BobLauncherMatchRowLabel* bob_launcher_match_row_label_new(gchar **css_classes, gint css_classes_length1);
 
 void bob_launcher_match_row_label_set_text(BobLauncherMatchRowLabel *self,
-                                           const char *text,
-                                           PangoAttrList *attrs);
+                                            const char *text,
+                                            PangoAttrList *attrs);
 
 void bob_launcher_match_row_label_set_description(BobLauncherMatchRowLabel *self,
-                                                  BobLauncherDescription *desc);
+                                                   Description *desc);
 
 void bob_launcher_match_row_label_reset(BobLauncherMatchRowLabel *self);
+
+gboolean bob_launcher_match_row_label_lookup_click(BobLauncherMatchRowLabel *self,
+                                                    GtkWidget *widget,
+                                                    ClickFunc *out_func,
+                                                    void **out_target);
 
 G_END_DECLS
 

@@ -1,5 +1,6 @@
 #include "match-row.h"
 #include "bob-launcher.h"
+#include "description.h"
 #include <match-row-label.h>
 #include <highlight.h>
 #include <state.h>
@@ -297,7 +298,7 @@ struct _BobLauncherMatchRowPrivate {
     HighlightPositions *description_positions;
     HighlightStyle highlight_style;
 
-    BobLauncherDescription *rich_description;
+    Description *rich_description;
 
     gint title_width;
     gint desc_width;
@@ -853,7 +854,7 @@ bob_launcher_match_row_update_match(BobLauncherMatchRow *self, needle_info *si)
     }
 
     if (BOB_LAUNCHER_IS_IRICH_ICON(m)) {
-        priv->icon_widget = g_object_ref(bob_launcher_irich_icon_get_rich_icon(BOB_LAUNCHER_IRICH_ICON(m)));
+        priv->icon_widget = bob_launcher_irich_icon_get_rich_icon(BOB_LAUNCHER_IRICH_ICON(m));
         gtk_widget_set_parent(priv->icon_widget, GTK_WIDGET(self));
     } else {
         g_free(priv->icon_name);

@@ -7,11 +7,6 @@
 #include <thread-manager.h>
 #include <glib-object.h>
 #include "string-utils.h"
-#include <sys/syscall.h>
-#include <linux/futex.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sched.h>
 
 typedef int BobLauncherSearchingFor;
 
@@ -26,32 +21,25 @@ extern char* bob_launcher_match_get_title(BobLauncherMatch* match);
 
 #define SEARCHING_FOR_SOURCES 1
 
-typedef struct SearchContext SearchContext;
-typedef struct PluginData PluginData;
-
-bool update_ui_callback(void* data);
-
-#define READY 1
-#define WAITING 0
-#define NO_MERGE -1
-
-typedef struct SearchContext {
-    atomic_int merge_workers;
+typedef struct {
     atomic_int workers;
-    atomic_int ready;
-    int event_id;
     HashSet* set;
 } SearchContext;
 
 typedef struct {
-    SearchContext* ctx;
+    HashSet* set;
     int merge_id;
 } MergeTask;
 
-typedef struct PluginData {
+typedef struct {
     char* query;
     needle_info* needle;
     needle_info* needle_spaceless;
+    atomic_int refs;
+} SharedNeedle;
+
+typedef struct {
+    SharedNeedle* shared_needle;
     SearchContext* ctx;
 
     BobLauncherSearchBase* plugin;
@@ -62,22 +50,13 @@ typedef struct PluginData {
 typedef struct {
     BobLauncherSearchBase* sp;
     size_t shard_count;
-    char* query;
+    SharedNeedle* needle;
 } SearchPlugin;
 
-bool update_ui_callback(void* data) {
+static bool update_ui_callback(void* data) {
     HashSet* set = (HashSet*)data;
 
     int size = atomic_load(&set->size);
-
-    if (size < 0) {
-        if (!events_ok(set->event_id)) {
-            thread_pool_run((TaskFunc)hashset_destroy, set, NULL);
-            return false;
-        }
-        __builtin_ia32_pause();
-        return true;
-    }
 
     bool reset_index = true;
 
@@ -92,14 +71,34 @@ bool update_ui_callback(void* data) {
     return false;
 }
 
-void merge_hashset_parallel_wrapper(void* user_data) {
-    MergeTask* task = (MergeTask*)user_data;
-    SearchContext* ctx = task->ctx;
+static inline void merge_hashset_parallel_wrapper(void* user_data) {
+    const MergeTask* task = (MergeTask*)user_data;
 
-    merge_hashset_parallel(task->ctx->set, task->merge_id);
+    if (merge_hashset_parallel(task->set, task->merge_id)) {
+        g_main_context_invoke_full(NULL, G_PRIORITY_HIGH,
+                                   (GSourceFunc)update_ui_callback, task->set, NULL);
+    }
+}
 
-    if (atomic_fetch_sub(&ctx->merge_workers, 1) == 1) {
-        free(ctx);
+static SharedNeedle* create_shared_needle(const char* query) {
+    SharedNeedle* sn = malloc(sizeof(SharedNeedle));
+    sn->query = strdup(query);
+    sn->needle = prepare_needle(query);
+
+    char* query_spaceless = replace(query, " ", "");
+    sn->needle_spaceless = prepare_needle(query_spaceless);
+    free(query_spaceless);
+
+    atomic_init(&sn->refs, 0);
+    return sn;
+}
+
+static void shared_needle_unref(SharedNeedle* sn) {
+    if (atomic_fetch_sub(&sn->refs, 1) == 1) {
+        free_string_info(sn->needle);
+        free_string_info(sn->needle_spaceless);
+        free(sn->query);
+        free(sn);
     }
 }
 
@@ -113,8 +112,9 @@ static void search_func(void* user_data) {
     if (!events_ok(set->event_id))
         return;
 
-    ResultContainer* rc = hashset_create_handle(set, plugin_data->query, plugin_data->bonus,
-                                                 plugin_data->needle, plugin_data->needle_spaceless);
+    SharedNeedle* sn = plugin_data->shared_needle;
+    ResultContainer* rc = hashset_create_handle(set, sn->query, plugin_data->bonus,
+                                                 sn->needle, sn->needle_spaceless);
     bob_launcher_search_base_search_shard(plugin_data->plugin, rc, shard);
 
     container_flush_items(set, rc);
@@ -123,54 +123,19 @@ static void search_func(void* user_data) {
 }
 
 static void finalize_search(SearchContext* ctx) {
-    HashSet* set = ctx->set;
+    if (atomic_fetch_sub(&ctx->workers, 1) != 1) return;
 
-    int remaining = atomic_fetch_sub(&ctx->workers, 1) - 1;
-    if (remaining >= MERGE_THREADS) return;
-
-    int merge_id = atomic_fetch_add(&ctx->merge_workers, 1);
-    int status = WAITING;
-
-    if (remaining == 0) {
-        if (events_ok(set->event_id)) {
-            status = READY;
-
-            // for plugins that don't have enough shards, simply spin up the missing mergers
-            int current = merge_id;
-            while (current < MERGE_THREADS) {
-                if (atomic_compare_exchange_weak(&ctx->merge_workers, &current, current + 1)) {
-                    MergeTask* task = malloc(sizeof(MergeTask));
-                    task->ctx = ctx;
-                    task->merge_id = current;
-                    thread_pool_run(merge_hashset_parallel_wrapper, task, free);
-                    current += 1;
-                }
-            }
-            atomic_store(&ctx->ready, READY);
-
-            g_main_context_invoke_full(NULL, G_PRIORITY_LOW,
-                                       (GSourceFunc)update_ui_callback, set, NULL);
-        } else {
-            status = NO_MERGE;
-            atomic_store(&ctx->ready, NO_MERGE);
-            hashset_destroy(set);
+    if (events_ok(ctx->set->event_id)) {
+        for (int i = 0; i < MERGE_THREADS; i++) {
+            MergeTask* task = malloc(sizeof(MergeTask));
+            task->set = ctx->set;
+            task->merge_id = i;
+            thread_pool_run(merge_hashset_parallel_wrapper, task, free);
         }
     } else {
-        volatile int dummy = 0;
-
-        while ((status = atomic_load(&ctx->ready)) == WAITING) {
-            dummy += (merge_id + 1) << merge_id;
-            __builtin_ia32_pause();
-        }
+        hashset_destroy(ctx->set);
     }
-
-    if (status == READY)
-        merge_hashset_parallel(set, merge_id);
-
-
-    if (atomic_fetch_sub(&ctx->merge_workers, 1) == 1) {
-        free(ctx);
-    }
+    free(ctx);
 }
 
 static void plugin_data_unref(void* user_data) {
@@ -179,34 +144,26 @@ static void plugin_data_unref(void* user_data) {
 
     PluginData* pd = (PluginData*)((char*)my_id_ptr - shard * sizeof(int) - sizeof(PluginData));
 
-    SearchContext* ctx = pd->ctx;
+    finalize_search(pd->ctx);
 
-    if (pd && atomic_fetch_sub(&pd->refs, 1) == 1) {
-        free_string_info(pd->needle);
-        free_string_info(pd->needle_spaceless);
-        free(pd->query);
+    shared_needle_unref(pd->shared_needle);
+
+    if (atomic_fetch_sub(&pd->refs, 1) == 1) {
         free(pd);
     }
-
-    finalize_search(ctx);
 }
 
-static void search_plugin(BobLauncherSearchBase* sp, SearchContext* ctx, const char* query, size_t shard_count) {
+static void search_plugin(BobLauncherSearchBase* sp, SearchContext* ctx, SharedNeedle* needle, size_t shard_count) {
     PluginData* plugin_data = aligned_alloc(64, sizeof(PluginData) + shard_count * sizeof(int));
     if (!plugin_data) return;
 
     plugin_data->plugin = sp;
     plugin_data->ctx = ctx;
-
-    plugin_data->needle = prepare_needle(query);
-    plugin_data->query = strdup(query);
-
-    char* query_spaceless = replace(query, " ", "");
-    plugin_data->needle_spaceless = prepare_needle(query_spaceless);
-    free(query_spaceless);
-
+    plugin_data->shared_needle = needle;
     plugin_data->bonus = bob_launcher_plugin_base_get_bonus((BobLauncherPluginBase*)sp);
     atomic_init(&plugin_data->refs, shard_count);
+
+    atomic_fetch_add(&needle->refs, shard_count);
 
     int* worker_ids = (int*)(plugin_data + 1);
 
@@ -220,9 +177,6 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
                                        int event_id, bool reset_index) {
     SearchContext* ctx = aligned_alloc(64, sizeof(SearchContext));
     if (ctx == NULL) return;
-    ctx->event_id = event_id;
-    atomic_init(&ctx->ready, WAITING);
-    atomic_init(&ctx->merge_workers, 0);
     ctx->set = hashset_create(event_id);
 
     if (selected_plg) {
@@ -238,11 +192,17 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
 
         size_t shard_count = bob_launcher_search_base_get_shard_count(selected_plg);
         atomic_init(&ctx->workers, shard_count);
-        search_plugin(selected_plg, ctx, query + end_pos, shard_count);
+
+        SharedNeedle* needle = create_shared_needle(query + end_pos);
+        search_plugin(selected_plg, ctx, needle, shard_count);
     } else {
-        SearchPlugin* plugins = malloc(plugin_loader_default_search_providers->len * sizeof(SearchPlugin));
+        SearchPlugin plugins[plugin_loader_default_search_providers->len];
         int counter = 0;
         int total_shards = 0;
+
+        int query_len = strlen(query);
+        SharedNeedle** needles_by_offset = calloc(query_len + 1, sizeof(SharedNeedle*));
+
         for (size_t i = 0; i < plugin_loader_default_search_providers->len; i++) {
             BobLauncherSearchBase* sp = plugin_loader_default_search_providers->pdata[i];
 
@@ -255,10 +215,14 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
                     g_match_info_fetch_pos(match_info, 1, NULL, &end_pos);
                     if (end_pos < 0) end_pos = 0;
                 }
+
+                if (!needles_by_offset[end_pos])
+                    needles_by_offset[end_pos] = create_shared_needle(query + end_pos);
+
                 size_t shard_count = bob_launcher_search_base_get_shard_count(sp);
                 total_shards += shard_count;
 
-                plugins[counter++] = (SearchPlugin){sp, shard_count, query + end_pos};
+                plugins[counter++] = (SearchPlugin){sp, shard_count, needles_by_offset[end_pos]};
                 g_match_info_free(match_info);
             }
         }
@@ -266,8 +230,9 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
         atomic_init(&ctx->workers, total_shards);
         for (size_t i = 0; i < counter; i++) {
             SearchPlugin plg = plugins[i];
-            search_plugin(plg.sp, ctx, plg.query, plg.shard_count);
+            search_plugin(plg.sp, ctx, plg.needle, plg.shard_count);
         }
-        free(plugins);
+
+        free(needles_by_offset);
     }
 }

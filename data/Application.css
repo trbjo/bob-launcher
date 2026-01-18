@@ -148,7 +148,7 @@ window#launcher:backdrop match-row-label {
 #query-container {
     background: @bg_transparent;
     padding: 8px 8px;
-    font-size: 24pt;
+    font-size: 23pt;
     font-weight: 300;
 }
 

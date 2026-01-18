@@ -1,4 +1,5 @@
 #include "main-container.h"
+#include "match-row-label.h"
 #include "bob-launcher.h"
 #include <result-box.h>
 #include <highlight.h>
@@ -12,8 +13,8 @@ typedef struct _BobLauncherMatchRowPrivate BobLauncherMatchRowPrivate;
 struct _BobLauncherMatchRow {
     GtkWidget parent_instance;
     BobLauncherMatchRowPrivate *priv;
-    gint abs_index;
-    gint event_id;
+    int abs_index;
+    int event_id;
 };
 
 typedef void (*BobLauncherFragmentFunc)(gpointer user_data, GError **error);
@@ -22,7 +23,6 @@ typedef struct _BobLauncherQueryContainer BobLauncherQueryContainer;
 typedef struct _BobLauncherResultBox BobLauncherResultBox;
 typedef struct _BobLauncherLauncherWindow BobLauncherLauncherWindow;
 typedef struct _BobLauncherMatchRow BobLauncherMatchRow;
-typedef struct _BobLauncherDescription BobLauncherDescription;
 
 #define BOB_LAUNCHER_TYPE_QUERY_CONTAINER (bob_launcher_query_container_get_type())
 #define BOB_LAUNCHER_TYPE_RESULT_BOX (bob_launcher_result_box_get_type())
@@ -101,11 +101,11 @@ static BobLauncherQueryContainer *qc = NULL;
 static BobLauncherProgressIndicatorWidget *progress_indicator = NULL;
 static BobLauncherResultBox *result_box = NULL;
 
-static gdouble fraction = 0.0;
+static double fraction = 0.0;
 static graphene_rect_t rect;
-static gint qc_height = 1;
-static gint box_height = 1;
-static gint bar_height = 1;
+static int qc_height = 1;
+static int box_height = 1;
+static int bar_height = 1;
 
 extern GType bob_launcher_query_container_get_type(void);
 extern GType bob_launcher_result_box_get_type(void);
@@ -116,7 +116,7 @@ extern BobLauncherQueryContainer *bob_launcher_query_container_new(void);
 extern BobLauncherResultBox *bob_launcher_result_box_new(void);
 extern void bob_launcher_result_box_update_layout(BobLauncherResultBox *self,
                                                    HashSet *provider,
-                                                   gint selected_index);
+                                                   int selected_index);
 
 extern BobLauncherLauncherWindow *bob_launcher_app_main_win;
 
@@ -128,15 +128,15 @@ static void bob_launcher_main_container_finalize(GObject *obj);
 static GtkSizeRequestMode bob_launcher_main_container_get_request_mode(GtkWidget *widget);
 static void bob_launcher_main_container_measure(GtkWidget *widget,
                                                  GtkOrientation orientation,
-                                                 gint for_size,
-                                                 gint *minimum,
-                                                 gint *natural,
-                                                 gint *minimum_baseline,
-                                                 gint *natural_baseline);
+                                                 int for_size,
+                                                 int *minimum,
+                                                 int *natural,
+                                                 int *minimum_baseline,
+                                                 int *natural_baseline);
 static void bob_launcher_main_container_size_allocate(GtkWidget *widget,
-                                                       gint width,
-                                                       gint height,
-                                                       gint baseline);
+                                                       int width,
+                                                       int height,
+                                                       int baseline);
 static void bob_launcher_main_container_snapshot(GtkWidget *widget,
                                                   GtkSnapshot *snapshot);
 static void bob_launcher_main_container_setup_click_controller(BobLauncherMainContainer *self);
@@ -229,11 +229,11 @@ bob_launcher_main_container_get_request_mode(GtkWidget *widget)
 static void
 bob_launcher_main_container_measure(GtkWidget *widget,
                                      GtkOrientation orientation,
-                                     gint for_size,
-                                     gint *minimum,
-                                     gint *natural,
-                                     gint *minimum_baseline,
-                                     gint *natural_baseline)
+                                     int for_size,
+                                     int *minimum,
+                                     int *natural,
+                                     int *minimum_baseline,
+                                     int *natural_baseline)
 {
     *minimum_baseline = *natural_baseline = -1;
     *minimum = *natural = 0;
@@ -254,9 +254,9 @@ bob_launcher_main_container_measure(GtkWidget *widget,
 
 static void
 bob_launcher_main_container_size_allocate(GtkWidget *widget,
-                                           gint width,
-                                           gint height,
-                                           gint baseline)
+                                           int width,
+                                           int height,
+                                           int baseline)
 {
     gtk_widget_allocate(GTK_WIDGET(qc), width, qc_height, baseline, NULL);
 
@@ -275,8 +275,8 @@ bob_launcher_main_container_snapshot(GtkWidget *widget,
     gtk_widget_snapshot_child(widget, GTK_WIDGET(qc), snapshot);
     gtk_widget_snapshot_child(widget, GTK_WIDGET(result_box), snapshot);
 
-    const gint width = gtk_widget_get_width(widget);
-    const gint progress_width = (gint)(width * fraction);
+    const int width = gtk_widget_get_width(widget);
+    const int progress_width = (int)(width * fraction);
 
     graphene_rect_init(&rect, 0, qc_height, progress_width, bar_height);
 
@@ -298,12 +298,12 @@ bob_launcher_main_container_new(void)
 
 void
 bob_launcher_main_container_update_layout(HashSet *provider,
-                                           gint selected_index)
+                                           int selected_index)
 {
     g_return_if_fail(provider != NULL);
 
     fraction = (provider->size > 1)
-        ? ((gdouble)selected_index) / ((gdouble)(provider->size - 1))
+        ? ((double)selected_index) / ((double)(provider->size - 1))
         : 0.0;
 
     bob_launcher_result_box_update_layout(result_box, provider, selected_index);
@@ -312,9 +312,9 @@ bob_launcher_main_container_update_layout(HashSet *provider,
 static void
 bob_launcher_main_container_handle_click_release(BobLauncherMainContainer *self,
                                                   GtkGestureClick *controller,
-                                                  gint n_press,
-                                                  gdouble x,
-                                                  gdouble y)
+                                                  int n_press,
+                                                  double x,
+                                                  double y)
 {
     GtkWidget *picked_widget = gtk_widget_pick(GTK_WIDGET(result_box), x, y, GTK_PICK_DEFAULT);
     if (picked_widget == NULL)
@@ -332,31 +332,40 @@ bob_launcher_main_container_handle_click_release(BobLauncherMainContainer *self,
         }
     }
 
-    BobLauncherDescription *frag = g_object_get_data(G_OBJECT(picked_widget), "fragment");
-    if (frag != NULL && frag->fragment_func != NULL) {
-        GError *error = NULL;
-        frag->fragment_func(frag->fragment_func_target, &error);
-        if (error != NULL) {
-            g_warning("Failed to execute fragment action: %s", error->message);
-            g_error_free(error);
-        } else if (!ctrl_pressed) {
-            gtk_widget_set_visible(GTK_WIDGET(bob_launcher_app_main_win), FALSE);
+    /* Find the match row label that contains this widget */
+    GtkWidget *label_widget = gtk_widget_get_ancestor(picked_widget, BOB_LAUNCHER_TYPE_MATCH_ROW_LABEL);
+    if (label_widget != NULL) {
+        BobLauncherMatchRowLabel *mrl = BOB_LAUNCHER_MATCH_ROW_LABEL(label_widget);
+        ClickFunc func;
+        void *target;
+
+        if (bob_launcher_match_row_label_lookup_click(mrl, picked_widget, &func, &target)) {
+            GError *error = NULL;
+            func(target, &error);
+            if (error != NULL) {
+                g_warning("Failed to execute fragment action: %s", error->message);
+                g_error_free(error);
+            } else if (!ctrl_pressed) {
+                gtk_widget_set_visible(GTK_WIDGET(bob_launcher_app_main_win), FALSE);
+            }
+            return;
         }
-    } else {
-        GtkWidget *item = gtk_widget_get_ancestor(picked_widget, BOB_LAUNCHER_TYPE_MATCH_ROW);
-        if (item != NULL) {
-            BobLauncherMatchRow *mr = BOB_LAUNCHER_MATCH_ROW(item);
-            controller_goto_match_abs(mr->abs_index);
-            controller_execute(!ctrl_pressed);
-        }
+    }
+
+    /* Fall through to match row handling */
+    GtkWidget *item = gtk_widget_get_ancestor(picked_widget, BOB_LAUNCHER_TYPE_MATCH_ROW);
+    if (item != NULL) {
+        BobLauncherMatchRow *mr = BOB_LAUNCHER_MATCH_ROW(item);
+        controller_goto_match_abs(mr->abs_index);
+        controller_execute(!ctrl_pressed);
     }
 }
 
 static void
 on_click_released(GtkGestureClick *gesture,
-                  gint n_press,
-                  gdouble x,
-                  gdouble y,
+                  int n_press,
+                  double x,
+                  double y,
                   gpointer user_data)
 {
     bob_launcher_main_container_handle_click_release(BOB_LAUNCHER_MAIN_CONTAINER(user_data),

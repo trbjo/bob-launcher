@@ -1,6 +1,12 @@
 #include "match-row-label.h"
-#include "bob-launcher.h"
+#include "description.h"
 #include <math.h>
+
+typedef struct {
+    GtkWidget *widget;
+    ClickFunc func;
+    void *target;
+} ClickBinding;
 
 typedef struct _BobLauncherMatchRowLabelPrivate BobLauncherMatchRowLabelPrivate;
 
@@ -38,6 +44,10 @@ struct _BobLauncherMatchRowLabelPrivate {
     GskColorStop stops[4];
     GtkEventController *scroll_controller;
     GtkWidget *next_expected_child;
+
+    ClickBinding *click_bindings;
+    int click_bindings_count;
+    int click_bindings_capacity;
 };
 
 static gint BobLauncherMatchRowLabel_private_offset;
@@ -172,6 +182,10 @@ bob_launcher_match_row_label_instance_init(BobLauncherMatchRowLabel *self, gpoin
     priv->widget_lengths = NULL;
     priv->widget_lengths_size = 0;
     priv->widget_lengths_length = 0;
+
+    priv->click_bindings = NULL;
+    priv->click_bindings_count = 0;
+    priv->click_bindings_capacity = 0;
 }
 
 static void
@@ -184,6 +198,7 @@ bob_launcher_match_row_label_finalize(GObject *object)
     g_clear_pointer(&priv->labels, g_ptr_array_unref);
     g_clear_pointer(&priv->child_labels, g_ptr_array_unref);
     g_clear_pointer(&priv->widget_lengths, g_free);
+    g_clear_pointer(&priv->click_bindings, g_free);
 
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(GTK_WIDGET(self))) != NULL) {
@@ -224,6 +239,26 @@ ensure_widget_lengths_capacity(BobLauncherMatchRowLabelPrivate *priv, int needed
 }
 
 static void
+ensure_click_bindings_capacity(BobLauncherMatchRowLabelPrivate *priv)
+{
+    if (priv->click_bindings_count >= priv->click_bindings_capacity) {
+        int new_cap = priv->click_bindings_capacity == 0 ? 4 : priv->click_bindings_capacity * 2;
+        priv->click_bindings = g_realloc_n(priv->click_bindings, new_cap, sizeof(ClickBinding));
+        priv->click_bindings_capacity = new_cap;
+    }
+}
+
+static void
+add_click_binding(BobLauncherMatchRowLabelPrivate *priv, GtkWidget *widget, ClickFunc func, void *target)
+{
+    ensure_click_bindings_capacity(priv);
+    priv->click_bindings[priv->click_bindings_count].widget = widget;
+    priv->click_bindings[priv->click_bindings_count].func = func;
+    priv->click_bindings[priv->click_bindings_count].target = target;
+    priv->click_bindings_count++;
+}
+
+static void
 reset(BobLauncherMatchRowLabel *self)
 {
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
@@ -233,6 +268,7 @@ reset(BobLauncherMatchRowLabel *self)
     priv->visible_images = 0;
     priv->visible_labels = 0;
     priv->visible_children = 0;
+    priv->click_bindings_count = 0;
     priv->next_expected_child = gtk_widget_get_first_child(GTK_WIDGET(self));
 }
 
@@ -282,11 +318,9 @@ acquire_child_label(BobLauncherMatchRowLabel *self)
     if (priv->visible_children < (int)priv->child_labels->len) {
         child = g_ptr_array_index(priv->child_labels, priv->visible_children);
         reset(child);
-        /* No longer unparenting children here - reset() handles position tracking */
     } else {
         child = g_object_new(BOB_LAUNCHER_TYPE_MATCH_ROW_LABEL, NULL);
 
-        /* Remove scroll controller from nested labels */
         if (child->priv->scroll_controller != NULL) {
             gtk_widget_remove_controller(GTK_WIDGET(child), child->priv->scroll_controller);
             child->priv->scroll_controller = NULL;
@@ -308,27 +342,24 @@ add_widget_to_self(BobLauncherMatchRowLabel *self, GtkWidget *widget)
     GtkWidget *current_parent = gtk_widget_get_parent(widget);
 
     if (current_parent == GTK_WIDGET(self)) {
-        /* Already our child - check if it's in the right position */
         if (widget == priv->next_expected_child) {
-            /* Already in correct position - just advance the cursor */
             priv->next_expected_child = gtk_widget_get_next_sibling(widget);
         } else {
-            /* Wrong position - move it before next_expected_child (or to end if NULL) */
             gtk_widget_insert_before(widget, GTK_WIDGET(self), priv->next_expected_child);
         }
     } else {
-        /* Widget from different parent or not parented */
         if (current_parent != NULL) {
             gtk_widget_unparent(widget);
         }
-        /* Insert before next_expected_child (or at end if NULL) */
         gtk_widget_insert_before(widget, GTK_WIDGET(self), priv->next_expected_child);
     }
 
     priv->current_widget_index++;
 }
 
-static void hide_unused_widgets(BobLauncherMatchRowLabel *self) {
+static void
+hide_unused_widgets(BobLauncherMatchRowLabel *self)
+{
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
     for (guint i = priv->visible_labels; i < priv->labels->len; i++) {
         gtk_widget_set_visible(g_ptr_array_index(priv->labels, i), FALSE);
@@ -344,29 +375,28 @@ static void hide_unused_widgets(BobLauncherMatchRowLabel *self) {
 static void
 set_widget_css_class(GtkWidget *widget, const char *css_class)
 {
-    const char *classes[] = { css_class, NULL };
-    gtk_widget_set_css_classes(widget, classes);
+    if (css_class != NULL && css_class[0] != '\0') {
+        const char *classes[] = { css_class, NULL };
+        gtk_widget_set_css_classes(widget, classes);
+    } else {
+        gtk_widget_set_css_classes(widget, NULL);
+    }
 }
 
 static void
-process_node(BobLauncherMatchRowLabel *self, BobLauncherDescription *desc)
+process_node(BobLauncherMatchRowLabel *self, DescType type, void *data)
 {
-    BobLauncherFragmentType ftype = desc->fragment_type;
-    const char *text = desc->text;
-    const char *css_class = desc->css_class;
-    PangoAttrList *attributes = desc->attributes;
-    GPtrArray *children = desc->children;
-    gboolean has_func = (desc->fragment_func != NULL);
+    BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
-    switch (ftype) {
-    case BOB_LAUNCHER_FRAGMENT_TYPE_IMAGE: {
+    switch (type) {
+    case DESC_IMAGE: {
+        ImageDesc *desc = data;
         BobLauncherTextImage *icon = acquire_image(self);
-        bob_launcher_text_image_update_icon_name(icon, text);
-        g_object_set_data(G_OBJECT(icon), "fragment", NULL);
-        set_widget_css_class(GTK_WIDGET(icon), css_class);
+        bob_launcher_text_image_update_icon_name(icon, desc->icon_name);
+        set_widget_css_class(GTK_WIDGET(icon), desc->css_class);
 
-        if (has_func) {
-            g_object_set_data_full(G_OBJECT(icon), "fragment", g_object_ref(desc), g_object_unref);
+        if (desc->click_func != NULL) {
+            add_click_binding(priv, GTK_WIDGET(icon), desc->click_func, desc->click_target);
             gtk_widget_add_css_class(GTK_WIDGET(icon), "clickable");
             gtk_widget_set_can_target(GTK_WIDGET(icon), TRUE);
         } else {
@@ -377,15 +407,15 @@ process_node(BobLauncherMatchRowLabel *self, BobLauncherDescription *desc)
         break;
     }
 
-    case BOB_LAUNCHER_FRAGMENT_TYPE_TEXT: {
+    case DESC_TEXT: {
+        TextDesc *desc = data;
         GtkLabel *label = acquire_label(self);
-        set_widget_css_class(GTK_WIDGET(label), css_class);
-        gtk_label_set_text(label, text);
-        gtk_label_set_attributes(label, attributes);
-        g_object_set_data(G_OBJECT(label), "fragment", NULL);
+        set_widget_css_class(GTK_WIDGET(label), desc->css_class);
+        gtk_label_set_text(label, desc->text);
+        gtk_label_set_attributes(label, desc->attrs);
 
-        if (has_func) {
-            g_object_set_data_full(G_OBJECT(label), "fragment", g_object_ref(desc), g_object_unref);
+        if (desc->click_func != NULL) {
+            add_click_binding(priv, GTK_WIDGET(label), desc->click_func, desc->click_target);
             gtk_widget_add_css_class(GTK_WIDGET(label), "clickable");
             gtk_widget_set_can_target(GTK_WIDGET(label), TRUE);
         } else {
@@ -396,23 +426,19 @@ process_node(BobLauncherMatchRowLabel *self, BobLauncherDescription *desc)
         break;
     }
 
-    case BOB_LAUNCHER_FRAGMENT_TYPE_CONTAINER: {
+    case DESC_CONTAINER: {
+        Description *desc = data;
         BobLauncherMatchRowLabel *child = acquire_child_label(self);
-        set_widget_css_class(GTK_WIDGET(child), css_class);
-        g_object_set_data(G_OBJECT(child), "fragment", NULL);
+        set_widget_css_class(GTK_WIDGET(child), desc->css_class);
 
-        if (has_func) {
-            g_object_set_data_full(G_OBJECT(child), "fragment", g_object_ref(desc), g_object_unref);
+        if (desc->click_func != NULL) {
+            add_click_binding(priv, GTK_WIDGET(child), desc->click_func, desc->click_target);
             gtk_widget_add_css_class(GTK_WIDGET(child), "clickable");
         }
         gtk_widget_set_visible(GTK_WIDGET(child), TRUE);
 
-        /* Recursively process children into the child label */
-        if (children != NULL) {
-            for (guint i = 0; i < children->len; i++) {
-                BobLauncherDescription *child_desc = g_ptr_array_index(children, i);
-                process_node(child, child_desc);
-            }
+        for (int i = 0; i < desc->count; i++) {
+            process_node(child, desc->types[i], desc->members[i]);
         }
         hide_unused_widgets(child);
 
@@ -427,10 +453,7 @@ bob_launcher_match_row_label_set_text(BobLauncherMatchRowLabel *self,
                                        const char *text,
                                        PangoAttrList *attrs)
 {
-    g_return_if_fail(BOB_LAUNCHER_IS_MATCH_ROW_LABEL(self));
-
     reset(self);
-    /* No longer unparenting - widgets stay parented, we just reuse them */
 
     GtkLabel *label = acquire_label(self);
     gtk_widget_set_css_classes(GTK_WIDGET(label), NULL);
@@ -444,42 +467,53 @@ bob_launcher_match_row_label_set_text(BobLauncherMatchRowLabel *self,
 
 void
 bob_launcher_match_row_label_set_description(BobLauncherMatchRowLabel *self,
-                                              BobLauncherDescription *desc)
+                                              Description *desc)
 {
-    g_return_if_fail(BOB_LAUNCHER_IS_MATCH_ROW_LABEL(self));
-
     reset(self);
-    /* No longer unparenting - widgets stay parented, we just reuse them */
 
-    /* If root is a container, apply its properties to self and process children */
-    if (desc->fragment_type == BOB_LAUNCHER_FRAGMENT_TYPE_CONTAINER) {
-        set_widget_css_class(GTK_WIDGET(self), desc->css_class);
-        g_object_set_data(G_OBJECT(self), "fragment", NULL);
+    set_widget_css_class(GTK_WIDGET(self), desc->css_class);
 
-        if (desc->fragment_func != NULL) {
-            g_object_set_data_full(G_OBJECT(self), "fragment", g_object_ref(desc), g_object_unref);
-            gtk_widget_add_css_class(GTK_WIDGET(self), "clickable");
-        }
+    if (desc->click_func != NULL) {
+        add_click_binding(self->priv, GTK_WIDGET(self), desc->click_func, desc->click_target);
+        gtk_widget_add_css_class(GTK_WIDGET(self), "clickable");
+    }
 
-        if (desc->children != NULL) {
-            for (guint i = 0; i < desc->children->len; i++) {
-                BobLauncherDescription *child_desc = g_ptr_array_index(desc->children, i);
-                process_node(self, child_desc);
-            }
-        }
-    } else {
-        /* Root is a single node (unusual case) */
-        process_node(self, desc);
+    for (int i = 0; i < desc->count; i++) {
+        process_node(self, desc->types[i], desc->members[i]);
     }
 
     hide_unused_widgets(self);
 }
 
+gboolean
+bob_launcher_match_row_label_lookup_click(BobLauncherMatchRowLabel *self,
+                                           GtkWidget *widget,
+                                           ClickFunc *out_func,
+                                           void **out_target)
+{
+    BobLauncherMatchRowLabelPrivate *priv = self->priv;
+
+    for (int i = 0; i < priv->click_bindings_count; i++) {
+        if (priv->click_bindings[i].widget == widget) {
+            *out_func = priv->click_bindings[i].func;
+            *out_target = priv->click_bindings[i].target;
+            return TRUE;
+        }
+    }
+
+    for (guint i = 0; i < priv->visible_children; i++) {
+        BobLauncherMatchRowLabel *child = g_ptr_array_index(priv->child_labels, i);
+        if (bob_launcher_match_row_label_lookup_click(child, widget, out_func, out_target)) {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
 void
 bob_launcher_match_row_label_reset(BobLauncherMatchRowLabel *self)
 {
-    g_return_if_fail(BOB_LAUNCHER_IS_MATCH_ROW_LABEL(self));
-
     reset(self);
 
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
@@ -503,7 +537,7 @@ bob_launcher_match_row_label_new(gchar **css_classes, gint css_classes_length1)
 static void
 bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 {
-    BobLauncherMatchRowLabel *self = BOB_LAUNCHER_MATCH_ROW_LABEL(widget);
+    BobLauncherMatchRowLabel *self = (BobLauncherMatchRowLabel*)widget;
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
     int width = gtk_widget_get_width(widget);
@@ -571,7 +605,7 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 static void
 bob_launcher_match_row_label_size_allocate(GtkWidget *widget, int width, int height, int baseline)
 {
-    BobLauncherMatchRowLabel *self = BOB_LAUNCHER_MATCH_ROW_LABEL(widget);
+    BobLauncherMatchRowLabel *self = (BobLauncherMatchRowLabel*)widget;
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
     priv->scroll_position = CLAMP(priv->scroll_position, 0, priv->children_width - width);
@@ -595,7 +629,7 @@ bob_launcher_match_row_label_measure(GtkWidget *widget, GtkOrientation orientati
                                       int for_size, int *minimum, int *natural,
                                       int *minimum_baseline, int *natural_baseline)
 {
-    BobLauncherMatchRowLabel *self = BOB_LAUNCHER_MATCH_ROW_LABEL(widget);
+    BobLauncherMatchRowLabel *self = (BobLauncherMatchRowLabel*)widget;
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
     *natural = *minimum = 0;
