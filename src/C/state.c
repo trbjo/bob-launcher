@@ -292,71 +292,58 @@ void state_append_query(const char* tail) {
 
     state_cursor_positions[state_sf] += utf8_char_count(tail);
     const char* q = state_get_query();
-    controller_start_search(q);
 
     size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
     bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+    controller_start_search(q);
 }
 
 void state_char_left() {
     if (state_change_cursor_position(state_cursor_positions[state_sf] - 1)) {
-        size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            byte_pos
-        );
+        const char* q = state_get_query();
+        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
     }
 }
 
 void state_char_right() {
     if (state_change_cursor_position(state_cursor_positions[state_sf] + 1)) {
-        size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            byte_pos
-        );
+        const char* q = state_get_query();
+        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
     }
 }
 
 void state_word_left() {
     int next_word = state_find_next_word(false);
     if (state_change_cursor_position(next_word)) {
-        size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            byte_pos
-        );
+        const char* q = state_get_query();
+        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
     }
 }
 
 void state_word_right() {
     int next_word = state_find_next_word(true);
     if (state_change_cursor_position(next_word)) {
-        size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            byte_pos
-        );
+        const char* q = state_get_query();
+        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
     }
 }
 
 void state_line_begin() {
     if (state_change_cursor_position(0)) {
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            0
-        );
+        bob_launcher_query_container_adjust_label_for_query(state_get_query(), 0);
     }
 }
 
 void state_line_end() {
-    int char_len = utf8_char_count(state_get_query());
+    const char* q = state_get_query();
+    int char_len = utf8_char_count(q);
     if (state_change_cursor_position(char_len)) {
-        size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), char_len);
-        bob_launcher_query_container_adjust_label_for_query(
-            state_get_query(),
-            byte_pos
-        );
+        size_t byte_pos = utf8_char_to_byte_pos(q, char_len);
+        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
     }
 }
 
@@ -369,13 +356,12 @@ void state_delete_char_backward() {
     }
 
     string_builder_erase_chars(sb, state_cursor_positions[state_sf], 1);
-    controller_start_search(state_get_query());
+    const char* q = state_get_query();
 
-    size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(
-        state_get_query(),
-        byte_pos
-    );
+    controller_start_search(q);
+
+    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
 }
 
 void state_delete_char_forward() {
@@ -385,13 +371,12 @@ void state_delete_char_forward() {
     }
 
     string_builder_erase_chars(sb, state_cursor_positions[state_sf], 1);
-    controller_start_search(state_get_query());
+    const char* q = state_get_query();
 
-    size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(
-        state_get_query(),
-        byte_pos
-    );
+    controller_start_search(q);
+
+    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
 }
 
 void state_delete_word() {
