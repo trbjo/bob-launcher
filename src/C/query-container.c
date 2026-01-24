@@ -58,6 +58,7 @@ typedef struct {
     GdkRGBA color;
     uint32_t generation;
     PangoEllipsizeMode ellipsize;
+    TextRepr text_repr;
 } QueryRenderRequest;
 
 typedef struct {
@@ -70,6 +71,7 @@ typedef struct {
     float cursor_x;
     float cursor_y;
     uint32_t generation;
+    TextRepr text_repr;
 } QueryRenderResult;
 
 /* Static variables for off-thread rendering */
@@ -199,7 +201,12 @@ on_render_complete(gpointer user_data)
     texture_logical_width = result->logical_width;
     texture_logical_height = result->logical_height;
 
-    /* Queue draw */
+    if (result->text_repr % 2 == 0) {
+        gtk_widget_add_css_class(GTK_WIDGET(instance), "query-empty");
+    } else {
+        gtk_widget_remove_css_class(GTK_WIDGET(instance), "query-empty");
+    }
+
     gtk_widget_queue_draw(GTK_WIDGET(instance));
 
     free(result);
@@ -237,9 +244,9 @@ render_query_worker(void *user_data)
     PangoContext *pango_ctx = pango_layout_get_context(layouts[0]);
     const PangoFontDescription *base_font = pango_context_get_font_description(pango_ctx);
 
-    PangoFontDescription *font_desc = pango_font_description_copy(base_font);
+    // PangoFontDescription *font_desc = pango_font_description_copy(base_font);
 
-    pango_layout_set_font_description(layout, font_desc);
+    pango_layout_set_font_description(layout, base_font);
     pango_layout_set_text(layout, req->text, -1);
     pango_layout_set_width(layout, req->width * PANGO_SCALE);
     pango_layout_set_ellipsize(layout, req->ellipsize);
@@ -256,6 +263,7 @@ render_query_worker(void *user_data)
     /* Create result */
     QueryRenderResult *result = malloc(sizeof(QueryRenderResult));
     result->pixels = pixels;
+    result->text_repr = req->text_repr;
     result->width = scaled_width;
     result->height = scaled_height;
     result->logical_width = req->width;
@@ -270,8 +278,7 @@ render_query_worker(void *user_data)
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
 
-    /* Send to main thread */
-    g_main_context_invoke(NULL, on_render_complete, result);
+    g_main_context_invoke_full(NULL, G_PRIORITY_HIGH, on_render_complete, result, NULL);
 }
 
 static void
@@ -315,6 +322,7 @@ submit_render_job(const char *text, int cursor_byte_pos, TextRepr repr)
     req->width = layout_width;
     req->height = height;
     req->scale = scale;
+    req->text_repr = repr;
     // req->font_desc = pango_font_description_copy(base_font);
     req->color = color;
     req->generation = atomic_fetch_add(&render_generation, 1) + 1;
@@ -597,6 +605,8 @@ bob_launcher_query_container_set_cursor_position(BobLauncherQueryContainer *self
 void
 bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor_position)
 {
+    return;
+
     int has_text = (text != NULL && text[0] != '\0') ? 1 : 0;
     text_repr = (TextRepr)(state_sf * 2 + has_text);
 
@@ -643,12 +653,6 @@ bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor
     case TEXT_REPR_EMPTY:
         render_text = TYPE_TO_SEARCH;
         break;
-    }
-
-    if (text_repr % 2 == 0) {
-        gtk_widget_add_css_class(GTK_WIDGET(instance), "query-empty");
-    } else {
-        gtk_widget_remove_css_class(GTK_WIDGET(instance), "query-empty");
     }
 
     /* Submit off-thread render job - no queue_draw here!
