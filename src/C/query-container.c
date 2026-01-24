@@ -181,7 +181,6 @@ on_render_complete(gpointer user_data)
     }
     atomic_store(&completed_generation, result->generation);
 
-    /* Create texture from rendered pixels */
     GBytes *bytes = g_bytes_new_take(result->pixels, result->stride * result->height);
     GdkTexture *new_texture = gdk_memory_texture_new(
         result->width, result->height,
@@ -190,11 +189,9 @@ on_render_complete(gpointer user_data)
         result->stride);
     g_bytes_unref(bytes);
 
-    /* Update cursor position */
     instance->cursor_x = result->cursor_x;
     instance->cursor_y = result->cursor_y;
 
-    /* Replace texture */
     if (text_texture)
         g_object_unref(text_texture);
     text_texture = new_texture;
@@ -214,8 +211,7 @@ on_render_complete(gpointer user_data)
 }
 
 static void
-render_query_worker(void *user_data)
-{
+render_query_worker(void *user_data) {
     QueryRenderRequest *req = (QueryRenderRequest *)user_data;
 
     /* Check if already stale */
@@ -238,13 +234,10 @@ render_query_worker(void *user_data)
     cairo_surface_set_device_scale(surface, req->scale, req->scale);
     cairo_t *cr = cairo_create(surface);
 
-    /* Create Pango layout */
     PangoLayout *layout = pango_cairo_create_layout(cr);
 
-    PangoContext *pango_ctx = pango_layout_get_context(layouts[0]);
+    PangoContext *pango_ctx = pango_layout_get_context(layouts[req->text_repr]);
     const PangoFontDescription *base_font = pango_context_get_font_description(pango_ctx);
-
-    // PangoFontDescription *font_desc = pango_font_description_copy(base_font);
 
     pango_layout_set_font_description(layout, base_font);
     pango_layout_set_text(layout, req->text, -1);
@@ -273,12 +266,11 @@ render_query_worker(void *user_data)
     result->cursor_y = (float)cursor_rect.y / PANGO_SCALE;
     result->generation = req->generation;
 
-    /* Cleanup */
+    g_main_context_invoke_full(NULL, G_PRIORITY_HIGH, on_render_complete, result, NULL);
+
     g_object_unref(layout);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
-
-    g_main_context_invoke_full(NULL, G_PRIORITY_HIGH, on_render_complete, result, NULL);
 }
 
 static void
@@ -286,7 +278,6 @@ render_request_destroy(void *user_data)
 {
     QueryRenderRequest *req = (QueryRenderRequest *)user_data;
     free(req->text);
-    // pango_font_description_free(req->font_desc);
     free(req);
 }
 
@@ -323,7 +314,6 @@ submit_render_job(const char *text, int cursor_byte_pos, TextRepr repr)
     req->height = height;
     req->scale = scale;
     req->text_repr = repr;
-    // req->font_desc = pango_font_description_copy(base_font);
     req->color = color;
     req->generation = atomic_fetch_add(&render_generation, 1) + 1;
     req->ellipsize = PANGO_ELLIPSIZE_MIDDLE;
@@ -578,8 +568,8 @@ bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     if (text_texture && texture_logical_width > 0 && texture_logical_height > 0) {
         graphene_rect_t bounds = GRAPHENE_RECT_INIT(0, 0, texture_logical_width, texture_logical_height);
         gtk_snapshot_append_texture(snapshot, text_texture, &bounds);
-    } else {
-        gtk_snapshot_append_layout(snapshot, layouts[text_repr], &color);
+    // } else {
+        // gtk_snapshot_append_layout(snapshot, layouts[text_repr], &color);
     }
 
     snapshot_cursor(self, snapshot);
@@ -605,8 +595,6 @@ bob_launcher_query_container_set_cursor_position(BobLauncherQueryContainer *self
 void
 bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor_position)
 {
-    return;
-
     int has_text = (text != NULL && text[0] != '\0') ? 1 : 0;
     text_repr = (TextRepr)(state_sf * 2 + has_text);
 
