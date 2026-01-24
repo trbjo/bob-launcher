@@ -3,8 +3,12 @@
 #include "drag-controller.h"
 #include <gtk/gtk.h>
 #include <pango/pango.h>
+#include <pango/pangocairo.h>
+#include <cairo.h>
 #include <graphene-gobject.h>
 #include <math.h>
+#include <stdatomic.h>
+#include <thread-manager.h>
 
 #define TYPE_TO_SEARCH "Type to search…"
 #define SELECT_PLUGIN "Select a plugin…"
@@ -42,6 +46,38 @@ extern GdkPaintable *icon_cache_service_get_paintable_for_icon_name(const char *
 
 typedef BobLauncherMatch *(*MatchFinderFunc)(double x, double y, gpointer user_data);
 extern void bob_launcher_drag_and_drop_handler_setup(GtkWidget *widget, MatchFinderFunc func, gpointer user_data);
+
+/* Off-thread rendering structures */
+typedef struct {
+    char *text;
+    int cursor_byte_pos;
+    int width;
+    int height;
+    int scale;
+    // PangoFontDescription *font_desc;
+    GdkRGBA color;
+    uint32_t generation;
+    PangoEllipsizeMode ellipsize;
+} QueryRenderRequest;
+
+typedef struct {
+    unsigned char *pixels;
+    int width;           /* scaled pixel width */
+    int height;          /* scaled pixel height */
+    int logical_width;   /* unscaled logical width */
+    int logical_height;  /* unscaled logical height */
+    int stride;
+    float cursor_x;
+    float cursor_y;
+    uint32_t generation;
+} QueryRenderResult;
+
+/* Static variables for off-thread rendering */
+static atomic_uint render_generation = 0;
+static atomic_uint completed_generation = 0;
+static GdkTexture *text_texture = NULL;
+static int texture_logical_width = 0;
+static int texture_logical_height = 0;
 
 /* CursorWidget - internal helper class */
 typedef struct _BobLauncherQueryContainerCursorWidget BobLauncherQueryContainerCursorWidget;
@@ -127,6 +163,166 @@ static void bob_launcher_query_container_measure(GtkWidget *widget, GtkOrientati
                                                   int *minimum, int *natural, int *minimum_baseline, int *natural_baseline);
 static void bob_launcher_query_container_size_allocate(GtkWidget *widget, int width, int height, int baseline);
 static void bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot);
+
+/* Off-thread rendering functions */
+static gboolean
+on_render_complete(gpointer user_data)
+{
+    QueryRenderResult *result = (QueryRenderResult *)user_data;
+
+    /* Check if this render is stale */
+    uint32_t completed = atomic_load(&completed_generation);
+    if (result->generation <= completed) {
+        free(result->pixels);
+        free(result);
+        return G_SOURCE_REMOVE;
+    }
+    atomic_store(&completed_generation, result->generation);
+
+    /* Create texture from rendered pixels */
+    GBytes *bytes = g_bytes_new_take(result->pixels, result->stride * result->height);
+    GdkTexture *new_texture = gdk_memory_texture_new(
+        result->width, result->height,
+        GDK_MEMORY_B8G8R8A8_PREMULTIPLIED,
+        bytes,
+        result->stride);
+    g_bytes_unref(bytes);
+
+    /* Update cursor position */
+    instance->cursor_x = result->cursor_x;
+    instance->cursor_y = result->cursor_y;
+
+    /* Replace texture */
+    if (text_texture)
+        g_object_unref(text_texture);
+    text_texture = new_texture;
+    texture_logical_width = result->logical_width;
+    texture_logical_height = result->logical_height;
+
+    /* Queue draw */
+    gtk_widget_queue_draw(GTK_WIDGET(instance));
+
+    free(result);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+render_query_worker(void *user_data)
+{
+    QueryRenderRequest *req = (QueryRenderRequest *)user_data;
+
+    /* Check if already stale */
+    uint32_t current = atomic_load(&render_generation);
+    if (req->generation < current) {
+        return;
+    }
+
+    /* Scale dimensions for HiDPI */
+    int scaled_width = req->width * req->scale;
+    int scaled_height = req->height * req->scale;
+
+    /* Create Cairo surface at scaled size */
+    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, scaled_width);
+    unsigned char *pixels = calloc(1, stride * scaled_height);
+    if (!pixels) return;
+
+    cairo_surface_t *surface = cairo_image_surface_create_for_data(
+        pixels, CAIRO_FORMAT_ARGB32, scaled_width, scaled_height, stride);
+    cairo_surface_set_device_scale(surface, req->scale, req->scale);
+    cairo_t *cr = cairo_create(surface);
+
+    /* Create Pango layout */
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+
+    PangoContext *pango_ctx = pango_layout_get_context(layouts[0]);
+    const PangoFontDescription *base_font = pango_context_get_font_description(pango_ctx);
+
+    PangoFontDescription *font_desc = pango_font_description_copy(base_font);
+
+    pango_layout_set_font_description(layout, font_desc);
+    pango_layout_set_text(layout, req->text, -1);
+    pango_layout_set_width(layout, req->width * PANGO_SCALE);
+    pango_layout_set_ellipsize(layout, req->ellipsize);
+    pango_layout_set_single_paragraph_mode(layout, TRUE);
+
+    /* Set color and render */
+    cairo_set_source_rgba(cr, req->color.red, req->color.green, req->color.blue, req->color.alpha);
+    pango_cairo_show_layout(cr, layout);
+
+    /* Get cursor position */
+    PangoRectangle cursor_rect;
+    pango_layout_get_cursor_pos(layout, req->cursor_byte_pos, &cursor_rect, NULL);
+
+    /* Create result */
+    QueryRenderResult *result = malloc(sizeof(QueryRenderResult));
+    result->pixels = pixels;
+    result->width = scaled_width;
+    result->height = scaled_height;
+    result->logical_width = req->width;
+    result->logical_height = req->height;
+    result->stride = stride;
+    result->cursor_x = (float)cursor_rect.x / PANGO_SCALE;
+    result->cursor_y = (float)cursor_rect.y / PANGO_SCALE;
+    result->generation = req->generation;
+
+    /* Cleanup */
+    g_object_unref(layout);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+
+    /* Send to main thread */
+    g_main_context_invoke(NULL, on_render_complete, result);
+}
+
+static void
+render_request_destroy(void *user_data)
+{
+    QueryRenderRequest *req = (QueryRenderRequest *)user_data;
+    free(req->text);
+    // pango_font_description_free(req->font_desc);
+    free(req);
+}
+
+static void
+submit_render_job(const char *text, int cursor_byte_pos, TextRepr repr)
+{
+    if (!instance) return;
+
+    int width = gtk_widget_get_width(GTK_WIDGET(instance));
+    int height = gtk_widget_get_height(GTK_WIDGET(instance));
+
+    /* Skip if not allocated yet */
+    if (width <= 0 || height <= 0) return;
+
+    /* Calculate layout width based on text_repr */
+    int glass_width = (repr == TEXT_REPR_FALLBACK_SRC) ? height : 0;
+    int draggable_width = (repr >= TEXT_REPR_FALLBACK_ACT) ? height : 0;
+    int layout_width = width - glass_width - draggable_width;
+
+    if (layout_width <= 0) return;
+
+    /* Get color */
+    GdkRGBA color;
+    gtk_widget_get_color(GTK_WIDGET(instance), &color);
+
+    /* Get scale factor for HiDPI */
+    int scale = gtk_widget_get_scale_factor(GTK_WIDGET(instance));
+
+    /* Create request */
+    QueryRenderRequest *req = malloc(sizeof(QueryRenderRequest));
+    req->text = strdup(text ? text : "");
+    req->cursor_byte_pos = cursor_byte_pos;
+    req->width = layout_width;
+    req->height = height;
+    req->scale = scale;
+    // req->font_desc = pango_font_description_copy(base_font);
+    req->color = color;
+    req->generation = atomic_fetch_add(&render_generation, 1) + 1;
+    req->ellipsize = PANGO_ELLIPSIZE_MIDDLE;
+
+    /* Submit to thread pool */
+    thread_pool_run(render_query_worker, req, render_request_destroy);
+}
 
 static int
 thumbnail_location(BobLauncherQueryContainer *self)
@@ -260,6 +456,11 @@ bob_launcher_query_container_finalize(GObject *obj)
         self->cursor_w = NULL;
     }
 
+    if (text_texture) {
+        g_object_unref(text_texture);
+        text_texture = NULL;
+    }
+
     G_OBJECT_CLASS(bob_launcher_query_container_parent_class)->finalize(obj);
 }
 
@@ -274,8 +475,6 @@ bob_launcher_query_container_measure(GtkWidget *widget, GtkOrientation orientati
     *minimum_baseline = *natural_baseline = -1;
 
     if (orientation == GTK_ORIENTATION_VERTICAL) {
-        // int height;
-        // pango_layout_get_size(layouts[TEXT_REPR_EMPTY], NULL, &height);
         pango_layout_get_pixel_size(layouts[TEXT_REPR_EMPTY], NULL, &self->selected_row_height);
         *minimum = *natural = self->selected_row_height;
     } else {
@@ -366,7 +565,15 @@ bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 
     graphene_point_t text_offset = GRAPHENE_POINT_INIT(0, (height - self->selected_row_height) / 2.0f);
     gtk_snapshot_translate(snapshot, &text_offset);
-    gtk_snapshot_append_layout(snapshot, layouts[text_repr], &color);
+
+    /* Use texture if available, otherwise fall back to layout */
+    if (text_texture && texture_logical_width > 0 && texture_logical_height > 0) {
+        graphene_rect_t bounds = GRAPHENE_RECT_INIT(0, 0, texture_logical_width, texture_logical_height);
+        gtk_snapshot_append_texture(snapshot, text_texture, &bounds);
+    } else {
+        gtk_snapshot_append_layout(snapshot, layouts[text_repr], &color);
+    }
+
     snapshot_cursor(self, snapshot);
 
     gtk_snapshot_pop(snapshot);
@@ -395,44 +602,48 @@ bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor
 
     bob_launcher_query_container_set_cursor_position(instance, cursor_position);
 
+    const char *render_text = NULL;
+
     switch (text_repr) {
     case TEXT_REPR_FALLBACK_PLG:
+        render_text = SELECT_PLUGIN;
         break;
 
     case TEXT_REPR_FALLBACK_SRC: {
         BobLauncherMatch *sb = state_selected_plugin();
         if (sb != NULL) {
-            pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(sb), -1);
+            render_text = bob_launcher_match_get_title(sb);
+            pango_layout_set_text(layouts[text_repr], render_text, -1);
         } else {
             text_repr = TEXT_REPR_EMPTY;
+            render_text = TYPE_TO_SEARCH;
         }
         break;
     }
 
     case TEXT_REPR_FALLBACK_ACT:
-        pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(state_selected_source()), -1);
+        render_text = bob_launcher_match_get_title(state_selected_source());
+        pango_layout_set_text(layouts[text_repr], render_text, -1);
         break;
 
     case TEXT_REPR_FALLBACK_TAR:
-        pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(state_selected_action()), -1);
+        render_text = bob_launcher_match_get_title(state_selected_action());
+        pango_layout_set_text(layouts[text_repr], render_text, -1);
         break;
 
     case TEXT_REPR_PLG:
     case TEXT_REPR_SRC:
     case TEXT_REPR_ACT:
     case TEXT_REPR_TAR:
+        render_text = text;
         pango_layout_set_text(layouts[text_repr], text, -1);
         break;
 
     case TEXT_REPR_COUNT:
     case TEXT_REPR_EMPTY:
+        render_text = TYPE_TO_SEARCH;
         break;
     }
-
-    PangoRectangle strong_pos;
-    pango_layout_get_cursor_pos(layouts[text_repr], instance->cursor_position, &strong_pos, NULL);
-    instance->cursor_x = (float)strong_pos.x / PANGO_SCALE;
-    instance->cursor_y = (float)strong_pos.y / PANGO_SCALE;
 
     if (text_repr % 2 == 0) {
         gtk_widget_add_css_class(GTK_WIDGET(instance), "query-empty");
@@ -440,5 +651,7 @@ bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor
         gtk_widget_remove_css_class(GTK_WIDGET(instance), "query-empty");
     }
 
-    gtk_widget_queue_draw(GTK_WIDGET(instance));
+    /* Submit off-thread render job - no queue_draw here!
+     * The render completion callback will queue the draw. */
+    submit_render_job(render_text, cursor_position, text_repr);
 }
