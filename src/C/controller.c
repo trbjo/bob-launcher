@@ -437,8 +437,16 @@ bool controller_handle_command(int command) {
             state_update_layout(CURRENT_CATEGORY);
             return true;
 
+        case KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_ALT:
+            gtk_widget_add_css_class ((GtkWidget*)bob_launcher_app_main_win, "highlighted-alt");
+            return true;
+
         case KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH:
             gtk_widget_add_css_class ((GtkWidget*)bob_launcher_app_main_win, "highlighted");
+            return true;
+
+        case KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_ALT_RELEASE:
+            gtk_widget_remove_css_class ((GtkWidget*)bob_launcher_app_main_win, "highlighted-alt");
             return true;
 
         case KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_RELEASE:

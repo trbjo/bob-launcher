@@ -1,5 +1,4 @@
-#ifndef bob_launcher_DATA_SINK_SOURCES_H
-#define bob_launcher_DATA_SINK_SOURCES_H
+#pragma once
 
 #include <stdbool.h>
 #include <hashset.h>
@@ -9,7 +8,5 @@ typedef struct _BobLauncherSearchBase BobLauncherSearchBase;
 void data_sink_sources_execute_search(
     const char* query,
     BobLauncherSearchBase* selected_plg,
-    int event_id,
-    bool reset_index);
-
-#endif /* bob_launcher_DATA_SINK_SOURCES_H */
+    const int event_id,
+    const bool reset_index);

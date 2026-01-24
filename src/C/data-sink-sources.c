@@ -2,11 +2,17 @@
 #include "bob-launcher.h"
 #include "result-container.h"
 #include "match.h"
+
 #include <glib.h>
 #include <stdatomic.h>
 #include <thread-manager.h>
 #include <glib-object.h>
 #include "string-utils.h"
+#include <time.h>
+#include <stdio.h>
+#include <time.h>
+
+static struct timespec bench_start, bench_end;
 
 typedef int BobLauncherSearchingFor;
 
@@ -55,8 +61,7 @@ typedef struct {
 
 static bool update_ui_callback(void* data) {
     HashSet* set = (HashSet*)data;
-
-    int size = atomic_load(&set->size);
+    int size = atomic_load_explicit(&set->size, memory_order_acquire);
 
     bool reset_index = true;
 
@@ -64,8 +69,20 @@ static bool update_ui_callback(void* data) {
     int new_index = (reset_index && old != size) ? 0 :
                     state_selected_indices[SEARCHING_FOR_SOURCES];
 
+    struct timespec draw_start;
+    clock_gettime(CLOCK_MONOTONIC, &draw_start);
+
     if (state_update_provider(SEARCHING_FOR_SOURCES, set, new_index)) {
         state_update_layout(SEARCHING_FOR_SOURCES);
+    }
+
+    if (size) {
+        clock_gettime(CLOCK_MONOTONIC, &bench_end);
+        double draw_time = (bench_end.tv_sec - draw_start.tv_sec) * 1000 +
+                           (bench_end.tv_nsec - draw_start.tv_nsec) / 1e6;
+
+        double elapsed = (bench_end.tv_sec - bench_start.tv_sec) + (bench_end.tv_nsec - bench_start.tv_nsec) / 1e9;
+        printf("%d entries, %.3f ms, draw_time: %.3f ms\n", size, elapsed * 1000, draw_time);
     }
 
     return false;
@@ -73,7 +90,6 @@ static bool update_ui_callback(void* data) {
 
 static inline void merge_hashset_parallel_wrapper(void* user_data) {
     const MergeTask* task = (MergeTask*)user_data;
-
     if (merge_hashset_parallel(task->set, task->merge_id)) {
         g_main_context_invoke_full(NULL, G_PRIORITY_HIGH,
                                    (GSourceFunc)update_ui_callback, task->set, NULL);
@@ -117,7 +133,7 @@ static void search_func(void* user_data) {
                                                  sn->needle, sn->needle_spaceless);
     bob_launcher_search_base_search_shard(plugin_data->plugin, rc, shard);
 
-    container_flush_items(set, rc);
+    container_flush_items(rc);
     container_return_sheet(set, rc);
     container_destroy(rc);
 }
@@ -126,7 +142,7 @@ static void finalize_search(SearchContext* ctx) {
     if (atomic_fetch_sub(&ctx->workers, 1) != 1) return;
 
     if (events_ok(ctx->set->event_id)) {
-        for (int i = 0; i < MERGE_THREADS; i++) {
+        for (int i = 0; i < ctx->set->merge_workers; i++) {
             MergeTask* task = malloc(sizeof(MergeTask));
             task->set = ctx->set;
             task->merge_id = i;
@@ -135,6 +151,7 @@ static void finalize_search(SearchContext* ctx) {
     } else {
         hashset_destroy(ctx->set);
     }
+
     free(ctx);
 }
 
@@ -173,8 +190,11 @@ static void search_plugin(BobLauncherSearchBase* sp, SearchContext* ctx, SharedN
     }
 }
 
-void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* selected_plg,
-                                       int event_id, bool reset_index) {
+void data_sink_sources_execute_search(const char* query,
+                                      BobLauncherSearchBase* selected_plg,
+                                      const int event_id,
+                                      const bool reset_index) {
+    clock_gettime(CLOCK_MONOTONIC, &bench_start);
     SearchContext* ctx = aligned_alloc(64, sizeof(SearchContext));
     if (ctx == NULL) return;
     ctx->set = hashset_create(event_id);
@@ -191,6 +211,7 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
         }
 
         size_t shard_count = bob_launcher_search_base_get_shard_count(selected_plg);
+        ctx->set->merge_workers = MIN(shard_count, hashset_merge_threads);
         atomic_init(&ctx->workers, shard_count);
 
         SharedNeedle* needle = create_shared_needle(query + end_pos);
@@ -228,6 +249,7 @@ void data_sink_sources_execute_search(const char* query, BobLauncherSearchBase* 
         }
 
         atomic_init(&ctx->workers, total_shards);
+        ctx->set->merge_workers = MIN(total_shards, hashset_merge_threads);
         for (size_t i = 0; i < counter; i++) {
             SearchPlugin plg = plugins[i];
             search_plugin(plg.sp, ctx, plg.needle, plg.shard_count);

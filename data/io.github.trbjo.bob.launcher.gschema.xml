@@ -58,10 +58,6 @@
       <summary>Hide BobLauncher after successful drag and drop</summary>
       <description>Whether BobLauncher will hide after a successful drag and drop operation. This is disabled by default when the window is inactive</description>
     </key>
-    <key name="prefer-dark-theme" type="b">
-      <default>false</default>
-      <summary>prefer dark theme</summary>
-    </key>
     <key name="tooltip-max-width" type="i">
       <default>800</default>
       <summary>Tooltip max width</summary>
@@ -97,6 +93,11 @@
     <key name="shortcut-indicator" type="s">
       <default>'⌘'</default>
       <summary>Shortcut Indicator</summary>
+      <description>The text shown before the row number on the right side of matches.</description>
+    </key>
+    <key name="shortcut-alt-indicator" type="s">
+      <default>'⎇'</default>
+      <summary>Shortcut Alt Indicator</summary>
       <description>The text shown before the row number on the right side of matches.</description>
     </key>
     <key name="css-sheet" type="s">
@@ -303,6 +304,16 @@
     </key>
     <key name="highlight-match-release" type="as">
       <default>['&lt;Control&gt;Control_L']</default>
+      <summary>Release match highlight</summary>
+      <description>Keyboard shortcuts to deactivate the match highlight feature when released.</description>
+    </key>
+    <key name="highlight-match-alt" type="as">
+      <default>['Alt_L']</default>
+      <summary>Match highlight</summary>
+      <description>Keyboard shortcuts to highlight matches or activate a special highlight mode.</description>
+    </key>
+    <key name="highlight-match-alt-release" type="as">
+      <default>['&lt;Alt&gt;Alt_L']</default>
       <summary>Release match highlight</summary>
       <description>Keyboard shortcuts to deactivate the match highlight feature when released.</description>
     </key>

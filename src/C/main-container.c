@@ -300,8 +300,6 @@ void
 bob_launcher_main_container_update_layout(HashSet *provider,
                                            int selected_index)
 {
-    g_return_if_fail(provider != NULL);
-
     fraction = (provider->size > 1)
         ? ((double)selected_index) / ((double)(provider->size - 1))
         : 0.0;

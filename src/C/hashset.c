@@ -15,6 +15,12 @@
 
 extern int events_ok(int event_id);
 
+int hashset_merge_threads = 1;
+
+void hashset_init(int num_workers) {
+    hashset_merge_threads = num_workers;
+}
+
 static HashSet* hashset_pool[MAX_POOLED_HASHSETS];
 static _Atomic(HashSet**) pool_pos = hashset_pool;
 
@@ -48,6 +54,7 @@ static inline bool return_hashset_to_pool(HashSet* set) {
 static void reset_hashset(HashSet* set) {
     set->score_items = NULL;
     set->matches = NULL;
+    set->merge_workers = 1;
 
     size_t n = MAX_SHEETS * SHEET_SIZE;
     memset(set->combined, 0, n * sizeof(uint32_t) * 3);
@@ -105,7 +112,7 @@ static HashSet* hashset_new(int event_id) {
         return NULL;
     }
 
-    set->counts = aligned_alloc(CACHELINE, MERGE_THREADS * 256 * sizeof(uint16_t));
+    set->counts = aligned_alloc(CACHELINE, hashset_merge_threads * 256 * sizeof(uint32_t));
 
     if (!set->counts) {
         free(set->sheet_pool);
@@ -118,6 +125,8 @@ static HashSet* hashset_new(int event_id) {
     set->score_items = NULL;
     set->matches = NULL;
     set->event_id = event_id;
+    set->merge_workers = 1;
+
     memset(set->unfinished_queue, 0, sizeof(set->unfinished_queue));
 
     atomic_init(&set->size, INITIAL_UNFINISHED);
@@ -136,7 +145,7 @@ HashSet* hashset_create(int event_id) {
     return hashset_new(event_id);
 }
 
-ResultContainer* hashset_create_handle(HashSet* hashset, char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless) {
+ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless) {
     ResultContainer* container = malloc(sizeof(ResultContainer));
     if (!container) return NULL;
 
@@ -160,7 +169,7 @@ ResultContainer* hashset_create_handle(HashSet* hashset, char* query, int16_t bo
     return container;
 }
 
-ResultContainer* hashset_create_default_handle(HashSet* hashset, char* query) {
+ResultContainer* hashset_create_default_handle(HashSet* hashset, const char* query) {
     needle_info* string_info = prepare_needle(query);
     char* query_spaceless = replace(query, " ", "");
     needle_info* string_info_spaceless = prepare_needle(query_spaceless);
@@ -169,91 +178,26 @@ ResultContainer* hashset_create_default_handle(HashSet* hashset, char* query) {
     return hashset_create_handle(hashset, query, 0, string_info, string_info_spaceless);
 }
 
-static void radix_sort_hash_asc(uint64_t* arr, uint64_t* tmp, size_t n) {
-    if (n <= 1) return;
-
-    size_t count[256] = {0};
-
-    for (size_t i = 0; i < n; i++)
-        count[((arr[i] >> 32) & 0xFF)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        tmp[--count[((arr[i] >> 32) & 0xFF)]] = arr[i];
-
-    memset(count, 0, sizeof(count));
-
-    for (size_t i = 0; i < n; i++)
-        count[((tmp[i] >> 40) & 0xFF)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        arr[--count[((tmp[i] >> 40) & 0xFF)]] = tmp[i];
-
-    memset(count, 0, sizeof(count));
-
-    for (size_t i = 0; i < n; i++)
-        count[((arr[i] >> 48) & 0xFF)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        tmp[--count[((arr[i] >> 48) & 0xFF)]] = arr[i];
-
-    memset(count, 0, sizeof(count));
-
-    for (size_t i = 0; i < n; i++)
-        count[((tmp[i] >> 56) & 0xFF)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        arr[--count[((tmp[i] >> 56) & 0xFF)]] = tmp[i];
-}
-
-static void radix_sort_score(uint64_t* src, uint32_t* tmp, uint32_t* dest, size_t n) {
-    if (n == 0) return;
-
-    if (n == 1) {
-        dest[0] = (uint32_t)src[0];
-        return;
-    }
-
-    size_t count[256] = {0};
-
-    for (size_t i = 0; i < n; i++)
-        count[255 - ((src[i] >> 16) & 0xFE)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        tmp[--count[255 - ((src[i] >> 16) & 0xFE)]] = (uint32_t)src[i];
-
-    memset(count, 0, sizeof(count));
-
-    for (size_t i = 0; i < n; i++)
-        count[255 - ((tmp[i] >> 24) & 0xFF)]++;
-    for (int i = 1; i < 256; i++)
-        count[i] += count[i-1];
-    for (size_t i = n; i-- > 0;)
-        dest[--count[255 - ((tmp[i] >> 24) & 0xFF)]] = tmp[i];
-}
-
 static inline bool barrier_check_last(HashSet* s, int* bi) {
     int idx = *bi;
     *bi ^= 1;
-    return atomic_fetch_add(&s->bar[idx].v, 1) == MERGE_THREADS - 1;
+    return atomic_fetch_add_explicit(&s->bar[idx].v, 1, memory_order_acq_rel)  == s->merge_workers - 1;
 }
 
 static inline void barrier_spin(HashSet* s, int bi) {
-    volatile unsigned long dummy = 1;
-    while (atomic_load(&s->bar[bi ^ 1].v) != 0) {
-        dummy+=dummy;
-        dummy^=dummy + 1;
-        dummy+=dummy;
-        dummy^=dummy + 1;
+    while (atomic_load_explicit(&s->bar[bi ^ 1].v, memory_order_relaxed)) {
+        __builtin_ia32_pause();
+        __builtin_ia32_pause();
+        __builtin_ia32_pause();
+        __builtin_ia32_pause();
     }
+    // Acquire fence: see all writes published before barrier_release's store
+    atomic_thread_fence(memory_order_acquire);
 }
 
 static inline void barrier_release(HashSet* s, int bi) {
-    atomic_store(&s->bar[bi ^ 1].v, 0);
+    // Release: make all prior writes (including last thread's work) visible
+    atomic_store_explicit(&s->bar[bi ^ 1].v, 0, memory_order_release);
 }
 
 static inline void barrier_wait(HashSet* s, int* bi) {
@@ -263,7 +207,7 @@ static inline void barrier_wait(HashSet* s, int* bi) {
 }
 
 static inline void parallel_prefix_sum(HashSet* set, const int tid, uint32_t bucket[256], int* bi) {
-    memcpy(set->counts[tid], (uint16_t*)bucket, sizeof(uint16_t) * 256);
+    memcpy(set->counts[tid], bucket, sizeof(uint32_t) * 256);
 
     barrier_wait(set, bi);
 
@@ -274,7 +218,7 @@ static inline void parallel_prefix_sum(HashSet* set, const int tid, uint32_t buc
             bucket_base += set->counts[t][b];
         }
         bucket[b] = bucket_base;
-        for (int t = tid; t < MERGE_THREADS; t++) {
+        for (int t = tid; t < set->merge_workers; t++) {
             bucket_base += set->counts[t][b];
         }
     }
@@ -282,10 +226,9 @@ static inline void parallel_prefix_sum(HashSet* set, const int tid, uint32_t buc
 
 int merge_hashset_parallel(HashSet* set, int tid) {
     uint32_t bucket[256] = {0};
-    uint16_t* bucket16 = (uint16_t*)bucket;  // use first 512 bytes for counting
 
     const int64_t n = atomic_load(&set->hash_size);
-    const int64_t chunk = (n + MERGE_THREADS - 1) / MERGE_THREADS;
+    const int64_t chunk = (n + set->merge_workers - 1) / set->merge_workers;
     int64_t start = tid * chunk;
     int64_t end = (tid + 1) * chunk;
     if (end > n) end = n;
@@ -301,7 +244,7 @@ int merge_hashset_parallel(HashSet* set, int tid) {
         uint64_t* restrict dst = odd ? hash_items : tmp;
 
         for (uint32_t i = start; i < end; i++)
-            bucket16[(src[i] >> shift) & 0xFF]++;
+            bucket[(src[i] >> shift) & 0xFF]++;
 
         parallel_prefix_sum(set, tid, bucket, &bi);
 
@@ -309,7 +252,7 @@ int merge_hashset_parallel(HashSet* set, int tid) {
             dst[bucket[(src[i] >> shift) & 0xFF]++] = src[i];
 
         barrier_wait(set, &bi);
-        memset(bucket, 0, sizeof(uint16_t) * 256);
+        memset(bucket, 0, sizeof(bucket));
     }
 
     int local_dups = 0;
@@ -331,7 +274,7 @@ int merge_hashset_parallel(HashSet* set, int tid) {
     }
 
     for (uint32_t i = start; i < end; i++)
-        bucket16[255 - ((hash_items[i] >> 16) & 0xFE)]++;
+        bucket[255 - ((hash_items[i] >> 16) & 0xFE)]++;
 
     parallel_prefix_sum(set, tid, bucket, &bi);
 
@@ -341,10 +284,10 @@ int merge_hashset_parallel(HashSet* set, int tid) {
         score_tmp[bucket[255 - ((hash_items[i] >> 16) & 0xFE)]++] = (uint32_t)hash_items[i];
 
     barrier_wait(set, &bi);
-    memset(bucket, 0, sizeof(uint16_t) * 256);
+    memset(bucket, 0, sizeof(bucket));
 
     for (uint32_t i = start; i < end; i++)
-        bucket16[255 - ((score_tmp[i] >> 24) & 0xFF)]++;
+        bucket[255 - ((score_tmp[i] >> 24) & 0xFF)]++;
 
     parallel_prefix_sum(set, tid, bucket, &bi);
 
@@ -356,36 +299,12 @@ int merge_hashset_parallel(HashSet* set, int tid) {
     if (barrier_check_last(set, &bi)) {
         set->score_items = dest;
         set->matches = (BobLauncherMatch**)(set->combined + n);
-        atomic_fetch_add(&set->size, n - local_dups - INITIAL_UNFINISHED);
+        atomic_fetch_add_explicit(&set->size, n - local_dups - INITIAL_UNFINISHED, memory_order_release);
         return 1;
     } else if (local_dups) {
-        atomic_fetch_sub(&set->size, local_dups);
+        atomic_fetch_sub_explicit(&set->size, local_dups, memory_order_release);
     }
     return 0;
-}
-
-void hashset_prepare_new(HashSet* set) {
-    uint64_t* hash_items = set->hash_items;
-    int64_t n = set->hash_size;
-
-    radix_sort_hash_asc(hash_items, (uint64_t*)set->combined, n);
-
-    int dups = 0;
-    for (int64_t i = 1; i < n; i++) {
-        int64_t result = hash_items[i] - hash_items[i - 1];
-        if (result < UINT32_MAX) {
-            hash_items[i - 1] = 0;
-            if (result < 0)
-                hash_items[i] -= result;
-            dups++;
-        }
-    }
-
-    radix_sort_score(hash_items, set->combined + n, set->combined, n);
-
-    set->score_items = set->combined;
-    set->matches = (BobLauncherMatch**)(set->combined + n);
-    atomic_store(&set->size, n - dups);
 }
 
 void container_return_sheet(HashSet* set, ResultContainer* container) {
@@ -394,15 +313,6 @@ void container_return_sheet(HashSet* set, ResultContainer* container) {
     int pos = atomic_fetch_add(&set->write, 1);
     set->unfinished_queue[pos] = container->current_sheet;
     container->current_sheet = NULL;
-}
-
-void container_flush_items(HashSet* set, ResultContainer* container) {
-    if (!set || !container->local_items_size) return;
-
-    int write_start = atomic_fetch_add(&set->hash_size, container->local_items_size);
-
-    memcpy(set->hash_items + write_start, container->local_items, container->local_items_size * sizeof(uint64_t));
-    container->local_items_size = 0;
 }
 
 #define FOURTY_THREE_BITS 0x000007FFFFFFFFFFULL

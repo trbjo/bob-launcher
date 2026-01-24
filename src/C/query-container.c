@@ -104,6 +104,8 @@ struct _BobLauncherQueryContainer {
     int selected_row_height;
     BobLauncherQueryContainerCursorWidget *cursor_w;
     int cursor_position;
+    float cursor_x;
+    float cursor_y;
 };
 
 struct _BobLauncherQueryContainerClass {
@@ -213,6 +215,8 @@ bob_launcher_query_container_instance_init(BobLauncherQueryContainer *self, gpoi
     instance = self;
     self->selected_row_height = 0;
     self->cursor_position = 0;
+    self->cursor_x = 0.0f;
+    self->cursor_y = 0.0f;
 
     gtk_widget_set_name(GTK_WIDGET(self), "query-container");
     gtk_widget_set_overflow(GTK_WIDGET(self), GTK_OVERFLOW_HIDDEN);
@@ -223,8 +227,8 @@ bob_launcher_query_container_instance_init(BobLauncherQueryContainer *self, gpoi
         pango_layout_set_ellipsize(layouts[i], PANGO_ELLIPSIZE_MIDDLE);
         pango_layout_set_single_paragraph_mode(layouts[i], TRUE);
     }
-    pango_layout_set_markup(layouts[TEXT_REPR_EMPTY], TYPE_TO_SEARCH, -1);
-    pango_layout_set_markup(layouts[TEXT_REPR_FALLBACK_PLG], SELECT_PLUGIN, -1);
+    pango_layout_set_text(layouts[TEXT_REPR_EMPTY], TYPE_TO_SEARCH, -1);
+    pango_layout_set_text(layouts[TEXT_REPR_FALLBACK_PLG], SELECT_PLUGIN, -1);
 
     bob_launcher_drag_and_drop_handler_setup(GTK_WIDGET(self), match_finder, self);
 
@@ -335,17 +339,9 @@ snapshot_drag_image(BobLauncherQueryContainer *self, GtkSnapshot *snapshot, int 
 }
 
 static void
-snapshot_cursor(BobLauncherQueryContainer *self, GtkSnapshot *snapshot, GdkRGBA *color)
+snapshot_cursor(BobLauncherQueryContainer *self, GtkSnapshot *snapshot)
 {
-    (void)color;
-
-    PangoRectangle strong_pos;
-    pango_layout_get_cursor_pos(layouts[text_repr], self->cursor_position, &strong_pos, NULL);
-
-    float cursor_x = (float)strong_pos.x / PANGO_SCALE;
-    float cursor_y = (float)strong_pos.y / PANGO_SCALE;
-
-    graphene_point_t offset = GRAPHENE_POINT_INIT(cursor_x, cursor_y);
+    graphene_point_t offset = GRAPHENE_POINT_INIT(self->cursor_x, self->cursor_y);
     gtk_snapshot_translate(snapshot, &offset);
     gtk_widget_snapshot_child(GTK_WIDGET(self), GTK_WIDGET(self->cursor_w), snapshot);
 }
@@ -371,7 +367,7 @@ bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     graphene_point_t text_offset = GRAPHENE_POINT_INIT(0, (height - self->selected_row_height) / 2.0f);
     gtk_snapshot_translate(snapshot, &text_offset);
     gtk_snapshot_append_layout(snapshot, layouts[text_repr], &color);
-    snapshot_cursor(self, snapshot, &color);
+    snapshot_cursor(self, snapshot);
 
     gtk_snapshot_pop(snapshot);
 
@@ -406,45 +402,37 @@ bob_launcher_query_container_adjust_label_for_query(const char *text, int cursor
     case TEXT_REPR_FALLBACK_SRC: {
         BobLauncherMatch *sb = state_selected_plugin();
         if (sb != NULL) {
-            char *formatted = g_markup_escape_text(bob_launcher_match_get_title(sb), -1);
-            pango_layout_set_markup(layouts[text_repr], formatted, -1);
-            g_free(formatted);
+            pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(sb), -1);
         } else {
             text_repr = TEXT_REPR_EMPTY;
         }
         break;
     }
 
-    case TEXT_REPR_FALLBACK_ACT: {
-        const char *title = bob_launcher_match_get_title(state_selected_source());
-        char *formatted = g_markup_escape_text(title, -1);
-        pango_layout_set_markup(layouts[text_repr], formatted, -1);
-        g_free(formatted);
+    case TEXT_REPR_FALLBACK_ACT:
+        pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(state_selected_source()), -1);
         break;
-    }
 
-    case TEXT_REPR_FALLBACK_TAR: {
-        const char *title = bob_launcher_match_get_title(state_selected_action());
-        char *formatted = g_markup_escape_text(title, -1);
-        pango_layout_set_markup(layouts[text_repr], formatted, -1);
-        g_free(formatted);
+    case TEXT_REPR_FALLBACK_TAR:
+        pango_layout_set_text(layouts[text_repr], bob_launcher_match_get_title(state_selected_action()), -1);
         break;
-    }
 
     case TEXT_REPR_PLG:
     case TEXT_REPR_SRC:
     case TEXT_REPR_ACT:
-    case TEXT_REPR_TAR: {
-        char *formatted = g_markup_escape_text(text, -1);
-        pango_layout_set_markup(layouts[text_repr], formatted, -1);
-        g_free(formatted);
+    case TEXT_REPR_TAR:
+        pango_layout_set_text(layouts[text_repr], text, -1);
         break;
-    }
 
     case TEXT_REPR_COUNT:
     case TEXT_REPR_EMPTY:
         break;
     }
+
+    PangoRectangle strong_pos;
+    pango_layout_get_cursor_pos(layouts[text_repr], instance->cursor_position, &strong_pos, NULL);
+    instance->cursor_x = (float)strong_pos.x / PANGO_SCALE;
+    instance->cursor_y = (float)strong_pos.y / PANGO_SCALE;
 
     if (text_repr % 2 == 0) {
         gtk_widget_add_css_class(GTK_WIDGET(instance), "query-empty");

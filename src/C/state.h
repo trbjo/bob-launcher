@@ -35,7 +35,6 @@ extern int state_cursor_positions_length1;
 /* StringBuilder functions */
 StringBuilder* string_builder_new();
 void string_builder_free(StringBuilder* sb);
-const char* string_builder_get_str(StringBuilder* sb);
 bool string_builder_ensure_capacity(StringBuilder* sb, size_t new_len);
 bool string_builder_insert_at_char(StringBuilder* sb, size_t char_pos, const char* text);
 bool string_builder_erase_chars(StringBuilder* sb, size_t char_pos, size_t char_count);

@@ -79,6 +79,8 @@ const struct {
     { KEYBINDINGS_COMMAND_ACTIVATE, "activate" },
     { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH, "highlight-match" },
     { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_RELEASE, "highlight-match-release" },
+    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_ALT, "highlight-match-alt" },
+    { KEYBINDINGS_COMMAND_HIGHLIGHT_MATCH_ALT_RELEASE, "highlight-match-alt-release" },
     { 0, NULL }
 };
 

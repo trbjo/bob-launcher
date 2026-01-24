@@ -502,6 +502,14 @@ bob_launcher_launcher_window_class_init(BobLauncherLauncherWindowClass *klass, g
     launcher_window_appsettings = bob_launcher_app_settings_get_default();
 }
 
+static void on_color_scheme_changed(GSettings *settings, const char *key, gpointer user_data) {
+    char *scheme = g_settings_get_string(settings, "color-scheme");
+    bool prefer_dark = strcmp(scheme, "prefer-dark") == 0;
+    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", prefer_dark, NULL);
+    g_free(scheme);
+}
+
+
 static void
 bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpointer klass)
 {
@@ -512,7 +520,6 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
     priv->client_side_shadow = FALSE;
     priv->inhibit_system_shortcuts = FALSE;
 
-    /* Create settings and bind properties */
     priv->settings = g_settings_new(BOB_LAUNCHER_BOB_LAUNCHER_APP_ID ".ui");
 
     g_settings_bind(priv->settings, "client-side-shadow", self, "client-side-shadow", G_SETTINGS_BIND_GET);
@@ -520,9 +527,11 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
                            G_CALLBACK(on_shadow_settings_changed), self);
     handle_shadow_settings(self);
 
-    GtkSettings *gtk_settings = gtk_settings_get_default();
-    g_settings_bind(priv->settings, "prefer-dark-theme", gtk_settings,
-                    "gtk-application-prefer-dark-theme", G_SETTINGS_BIND_DEFAULT);
+    GSettings *desktop_settings = g_settings_new("org.gnome.desktop.interface");
+    g_signal_connect(desktop_settings, "changed::color-scheme",
+                     G_CALLBACK(on_color_scheme_changed), NULL);
+
+    on_color_scheme_changed(desktop_settings, "color-scheme", NULL);
 
     g_settings_bind(priv->settings, "inhibit-system-shortcuts", self, "inhibit-system-shortcuts", G_SETTINGS_BIND_GET);
     g_signal_connect_after(priv->settings, "changed::inhibit-system-shortcuts",
@@ -532,7 +541,6 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
                      G_CALLBACK(on_border_settings_changed), self);
     handle_border_settings(self);
 
-    /* Window properties */
     gtk_widget_set_can_focus(GTK_WIDGET(self), FALSE);
     gtk_widget_set_focusable(GTK_WIDGET(self), FALSE);
     g_object_set(self,
@@ -543,10 +551,8 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
                  NULL);
     gtk_widget_set_name(GTK_WIDGET(self), "launcher");
 
-    /* Set child */
     gtk_window_set_child(GTK_WINDOW(self), GTK_WIDGET(bob_launcher_main_container_new()));
 
-    /* Create and parent resize handles */
     bob_launcher_launcher_window_up_down_handle = bob_launcher_up_down_resize_handle_new();
     gtk_widget_set_parent(GTK_WIDGET(bob_launcher_launcher_window_up_down_handle), GTK_WIDGET(self));
 

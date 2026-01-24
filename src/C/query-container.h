@@ -2,12 +2,11 @@
 #define BOB_LAUNCHER_QUERY_CONTAINER_H
 
 #include <gtk/gtk.h>
+#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 
 G_BEGIN_DECLS
 
-#define BOB_LAUNCHER_TYPE_QUERY_CONTAINER (bob_launcher_query_container_get_type())
-#define BOB_LAUNCHER_QUERY_CONTAINER(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BOB_LAUNCHER_TYPE_QUERY_CONTAINER, BobLauncherQueryContainer))
-#define BOB_LAUNCHER_IS_QUERY_CONTAINER(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BOB_LAUNCHER_TYPE_QUERY_CONTAINER))
+#define BOB_LAUNCHER_QUERY_CONTAINER(obj) ((BobLauncherQueryContainer*)obj)
 
 typedef struct _BobLauncherQueryContainer BobLauncherQueryContainer;
 typedef struct _BobLauncherQueryContainerClass BobLauncherQueryContainerClass;

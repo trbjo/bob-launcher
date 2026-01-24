@@ -74,7 +74,7 @@ typedef struct ResultContainer {
     needle_info* string_info;
     needle_info* string_info_spaceless;
     uint64_t event_id;
-    char* query;
+    const char* query;
     atomic_int* global_index_counter;
     _Atomic(ResultSheet**)* read;
 } ResultContainer;
@@ -82,6 +82,7 @@ typedef struct ResultContainer {
 FuncPair get_func_pair(uint64_t packed);
 
 void container_destroy(ResultContainer* container);
+void container_flush_items(ResultContainer* container);
 
 bool result_container_insert(ResultContainer* container, uint32_t hash, int32_t score,
                             MatchFactory func, void* factory_user_data,

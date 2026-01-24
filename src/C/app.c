@@ -17,6 +17,7 @@ typedef struct _BobLauncherBobLaunchContext BobLauncherBobLaunchContext;
 
 extern int thread_pool_num_cores(void);
 extern void thread_pool_init(int n);
+extern void hashset_init(int n);
 extern void thread_pool_pin_caller(void);
 extern void thread_pool_join_all(void);
 extern void plugin_loader_initialize(void);
@@ -240,6 +241,7 @@ static void make_abstract_socket_name(const char *name, uint8_t *out, size_t *ou
 static void initialize(int fd) {
     int num_cores = thread_pool_num_cores();
     thread_pool_init(num_cores - 1);
+    hashset_init(num_cores - 1);
     thread_pool_pin_caller();
 
     gtk_init();

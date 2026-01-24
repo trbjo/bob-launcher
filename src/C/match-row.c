@@ -12,11 +12,8 @@
 #include <gsk/gsk.h>
 #include <stdatomic.h>
 
-/* ============================================================================
- * Constants
- * ============================================================================ */
-
 #define SHORTCUT_CSS    "shortcut"
+#define SHORTCUT_ALT_CSS    "shortcut-alt"
 #define HORIZONTAL_CSS  "horizontal"
 #define VERTICAL_CSS    "vertical"
 
@@ -282,6 +279,7 @@ struct _BobLauncherMatchRowPrivate {
     BobLauncherMatchRowLabel *title;
     GtkWidget *selected_row;
     GtkLabel *shortcut;
+    GtkLabel *shortcut_alt;
     GtkWidget *icon_widget;
 
     gboolean was_interesting;
@@ -290,6 +288,7 @@ struct _BobLauncherMatchRowPrivate {
     gint match_row_height;
     gint selected_row_width;
     gint shortcut_width;
+    gint shortcut_alt_width;
 
     gchar *title_string;
     gchar *description_string;
@@ -425,6 +424,10 @@ update_ui(BobLauncherMatchRow *self)
     gtk_label_set_markup(priv->shortcut, shortcut_markup);
     g_free(shortcut_markup);
 
+    gchar *shortcut_alt_markup = g_settings_get_string(match_row_settings, "shortcut-alt-indicator");
+    gtk_label_set_markup(priv->shortcut_alt, shortcut_alt_markup);
+    g_free(shortcut_alt_markup);
+
     gtk_widget_queue_resize(GTK_WIDGET(self));
 }
 
@@ -542,6 +545,8 @@ bob_launcher_match_row_measure(GtkWidget *widget,
                            NULL, &priv->selected_row_width, NULL, NULL);
         gtk_widget_measure(GTK_WIDGET(priv->shortcut), GTK_ORIENTATION_HORIZONTAL, -1,
                            NULL, &priv->shortcut_width, NULL, NULL);
+        gtk_widget_measure(GTK_WIDGET(priv->shortcut_alt), GTK_ORIENTATION_HORIZONTAL, -1,
+                           NULL, &priv->shortcut_alt_width, NULL, NULL);
 
         if (priv->orientation == GTK_ORIENTATION_HORIZONTAL) {
             gtk_widget_measure(GTK_WIDGET(priv->description), GTK_ORIENTATION_HORIZONTAL, -1,
@@ -571,8 +576,12 @@ bob_launcher_match_row_size_allocate(GtkWidget *widget, gint width, gint height,
     gtk_widget_allocate(GTK_WIDGET(priv->shortcut), priv->shortcut_width, height, baseline,
                         gsk_transform_translate(NULL, &pt));
 
+    pt.x = width - priv->shortcut_alt_width - priv->selected_row_width;
+    gtk_widget_allocate(GTK_WIDGET(priv->shortcut_alt), priv->shortcut_alt_width, height, baseline,
+                        gsk_transform_translate(NULL, &pt));
+
     if (priv->orientation == GTK_ORIENTATION_VERTICAL) {
-        const gint text_width = width - priv->icon_size - priv->shortcut_width - priv->selected_row_width;
+        const gint text_width = width - priv->icon_size - priv->shortcut_width - priv->shortcut_alt_width - priv->selected_row_width;
         const gint leftover_height = height - priv->title_height - priv->desc_height;
         const gfloat middle_adj = leftover_height * 0.25f;
 
@@ -587,7 +596,7 @@ bob_launcher_match_row_size_allocate(GtkWidget *widget, gint width, gint height,
     } else {
         const gfloat title_label_shift = fhalf - (gfloat)priv->title_height * 0.5f;
         const gfloat desc_label_shift = (gfloat)(height - priv->desc_height) * 0.5f;
-        const gint available = width - priv->icon_size - priv->shortcut_width - priv->selected_row_width;
+        const gint available = width - priv->icon_size - priv->shortcut_width - priv->shortcut_alt_width - priv->selected_row_width;
         const gint title_w = MIN(available, priv->title_width);
         const gint desc_w = MIN(available, priv->desc_width);
 
@@ -620,6 +629,7 @@ bob_launcher_match_row_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     gtk_widget_snapshot_child(widget, GTK_WIDGET(priv->description), snapshot);
     gtk_widget_snapshot_child(widget, priv->selected_row, snapshot);
     gtk_widget_snapshot_child(widget, GTK_WIDGET(priv->shortcut), snapshot);
+    gtk_widget_snapshot_child(widget, GTK_WIDGET(priv->shortcut_alt), snapshot);
 
     if (priv->icon_widget != NULL) {
         gtk_widget_snapshot_child(widget, priv->icon_widget, snapshot);
@@ -778,12 +788,14 @@ bob_launcher_match_row_new(gint abs_index)
     gtk_widget_add_css_class(GTK_WIDGET(priv->shortcut), SHORTCUT_CSS);
     gtk_widget_set_parent(GTK_WIDGET(priv->shortcut), GTK_WIDGET(self));
 
-    /* Load highlight style */
+    priv->shortcut_alt = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_add_css_class(GTK_WIDGET(priv->shortcut_alt), SHORTCUT_ALT_CSS);
+    gtk_widget_set_parent(GTK_WIDGET(priv->shortcut_alt), GTK_WIDGET(self));
+
     gchar *style_string = g_settings_get_string(match_row_settings, "highlight-style");
     priv->highlight_style = parse_highlight_style(style_string);
     g_free(style_string);
 
-    /* Connect signals */
     g_signal_connect(match_row_settings, "changed::shortcut-indicator",
                      G_CALLBACK(on_settings_changed_update_ui), self);
     g_signal_connect(match_row_settings, "changed::match-description-next-to-title",

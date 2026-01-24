@@ -307,6 +307,9 @@ match-row {
     padding: 3px 8px;
 }
 
+window#launcher.highlighted-alt match-row:selected .shortcut-alt,
+window#launcher.highlighted match-row:selected row-number,
+window#launcher.highlighted-alt match-row:selected row-number,
 window#launcher.highlighted match-row:selected .shortcut {
     color: mix(@theme_base_color, @theme_text_color, 0.78);
 }
@@ -315,11 +318,14 @@ match-row row-number {
     min-width: 0.8em;
 }
 
+window#launcher.highlighted-alt match-row label.shortcut-alt,
 window#launcher.highlighted match-row label.shortcut {
     min-width: 15px;
     margin-left: 8px;
 }
 
+match-row row-number,
+match-row .shortcut-alt,
 match-row .shortcut {
     color: @unfocused_fg_color;
     transition: opacity 60ms, font-size 0ms linear 0ms, margin 60ms;
@@ -360,6 +366,8 @@ window#launcher tooltip .thumbnail-widget {
 
 
 
+window#launcher:not(.highlighted-alt):not(.highlighted) match-row row-number,
+window#launcher:not(.highlighted-alt) match-row .shortcut-alt,
 window#launcher:not(.highlighted) match-row .shortcut {
     transition: opacity 60ms, font-size 0ms linear 60ms, min-width 60ms linear 60ms, margin 120ms;
     min-width: 0;

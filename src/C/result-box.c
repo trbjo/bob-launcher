@@ -7,8 +7,8 @@ typedef struct _BobLauncherMatchRowPrivate BobLauncherMatchRowPrivate;
 struct _BobLauncherMatchRow {
     GtkWidget parent_instance;
     BobLauncherMatchRowPrivate *priv;
-    gint abs_index;
-    gint event_id;
+    int abs_index;
+    int event_id;
 };
 
 typedef struct _BobLauncherUpDownResizeHandle BobLauncherUpDownResizeHandle;
@@ -38,24 +38,24 @@ struct _BobLauncherResultBoxSeparatorClass {
     GtkWidgetClass parent_class;
 };
 
-static gint BobLauncherResultBox_private_offset;
+static int BobLauncherResultBox_private_offset;
 static gpointer bob_launcher_result_box_parent_class = NULL;
 static gpointer bob_launcher_result_box_separator_parent_class = NULL;
-static gint *row_sizes;
-static gint *sep_sizes;
+static int *row_sizes;
+static int *sep_sizes;
 static BobLauncherResultBoxSeparator **separators = NULL;
-static gint separators_length1 = 0;
+static int separators_length1 = 0;
 
-gint bob_launcher_result_box_box_size = 0;
-gint bob_launcher_result_box_visible_size = 0;
+int bob_launcher_result_box_box_size = 0;
+int bob_launcher_result_box_visible_size = 0;
 BobLauncherMatchRow **bob_launcher_result_box_row_pool = NULL;
-gint bob_launcher_result_box_row_pool_length1 = 0;
+int bob_launcher_result_box_row_pool_length1 = 0;
 
-extern BobLauncherMatchRow *bob_launcher_match_row_new(gint abs_index);
+extern BobLauncherMatchRow *bob_launcher_match_row_new(int abs_index);
 extern void bob_launcher_match_row_update(BobLauncherMatchRow *self, needle_info *si,
-                                          gint new_row, gint new_abs_index,
-                                          gboolean row_selected, gint new_event);
-extern void bob_launcher_main_container_update_layout(HashSet *provider, gint selected_index);
+                                          int new_row, int new_abs_index,
+                                          gboolean row_selected, int new_event);
+extern void bob_launcher_main_container_update_layout(HashSet *provider, int selected_index);
 extern void bob_launcher_scroll_controller_setup(BobLauncherResultBox *result_box);
 extern BobLauncherUpDownResizeHandle *bob_launcher_launcher_window_up_down_handle;
 
@@ -142,7 +142,7 @@ bob_launcher_result_box_on_box_size_change(GSettings *settings, const gchar *key
 static void
 bob_launcher_result_box_initialize_slots(BobLauncherResultBox *self)
 {
-    const gint size = bob_launcher_result_box_box_size;
+    const int size = bob_launcher_result_box_box_size;
 
     g_free(bob_launcher_result_box_row_pool);
     g_free(separators);
@@ -153,10 +153,10 @@ bob_launcher_result_box_initialize_slots(BobLauncherResultBox *self)
     bob_launcher_result_box_row_pool_length1 = size;
     separators = g_new0(BobLauncherResultBoxSeparator *, size);
     separators_length1 = size;
-    row_sizes = g_new0(gint, size);
-    sep_sizes = g_new0(gint, size);
+    row_sizes = g_new0(int, size);
+    sep_sizes = g_new0(int, size);
 
-    for (gint i = 0; i < size; i++) {
+    for (int i = 0; i < size; i++) {
         separators[i] = bob_launcher_result_box_separator_new();
         g_object_ref_sink(separators[i]);
         gtk_widget_set_parent(GTK_WIDGET(separators[i]), GTK_WIDGET(self));
@@ -183,11 +183,11 @@ static void
 sort_row_pool(void)
 {
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
-    const gint len = bob_launcher_result_box_row_pool_length1;
+    const int len = bob_launcher_result_box_row_pool_length1;
 
-    for (gint i = 1; i < len; i++) {
+    for (int i = 1; i < len; i++) {
         BobLauncherMatchRow *key = pool[i];
-        gint j = i - 1;
+        int j = i - 1;
         while (j >= 0 && should_swap(pool[j], key)) {
             pool[j + 1] = pool[j];
             j--;
@@ -197,16 +197,16 @@ sort_row_pool(void)
 }
 
 void
-bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provider, gint selected_index)
+bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provider, int selected_index)
 {
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
-    const gint box_size = bob_launcher_result_box_box_size;
+    const int box_size = bob_launcher_result_box_box_size;
 
     gtk_widget_set_visible(GTK_WIDGET(bob_launcher_launcher_window_up_down_handle), provider->size > 0);
 
-    const gint old_visible = bob_launcher_result_box_visible_size;
-    const gint provider_size = MAX(0, provider->size);
-    const gint visible_size = MIN(provider_size, box_size);
+    const int old_visible = bob_launcher_result_box_visible_size;
+    const int provider_size = MAX(0, provider->size);
+    const int visible_size = MIN(provider_size, box_size);
     bob_launcher_result_box_visible_size = visible_size;
 
     if (visible_size == 0) {
@@ -215,28 +215,28 @@ bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provi
         return;
     }
 
-    const gint before = (visible_size - 1) / 2;
-    const gint start_index = MAX(0, MIN(provider_size - visible_size, selected_index - before));
-    const gint stop_index = start_index + visible_size - 1;
+    const int before = (visible_size - 1) / 2;
+    const int start_index = MAX(0, MIN(provider_size - visible_size, selected_index - before));
+    const int stop_index = start_index + visible_size - 1;
 
-    gint view_tail = stop_index;
-    gint view_head = start_index;
+    int view_tail = stop_index;
+    int view_head = start_index;
 
     const gchar *query = state_get_query();
     gchar *stripped = g_strstrip(g_strdup(query));
     needle_info *si = prepare_needle(stripped);
     g_free(stripped);
 
-    const gint event_id = provider->event_id;
+    const int event_id = provider->event_id;
 
-    for (gint i = 0; i < visible_size; i++) {
+    for (int i = 0; i < visible_size; i++) {
         BobLauncherMatchRow *row = pool[i];
-        gint abs_index;
+        int abs_index;
 
         if (event_id != row->event_id) {
             abs_index = i + start_index;
         } else {
-            const gint abs = row->abs_index;
+            const int abs = row->abs_index;
             if (abs < start_index)
                 abs_index = view_tail--;
             else if (abs > stop_index)
@@ -251,10 +251,10 @@ bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provi
     free_string_info(si);
     sort_row_pool();
 
-    const gint preceding = selected_index - start_index;
-    const gint following = preceding + 1;
+    const int preceding = selected_index - start_index;
+    const int following = preceding + 1;
 
-    for (gint i = 0; i < separators_length1; i++) {
+    for (int i = 0; i < separators_length1; i++) {
         GtkStateFlags flag = (i == preceding || i == following) ? GTK_STATE_FLAG_SELECTED : GTK_STATE_FLAG_NORMAL;
         gtk_widget_set_state_flags(GTK_WIDGET(separators[i]), flag, TRUE);
     }
@@ -266,18 +266,18 @@ bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provi
 }
 
 static void
-bob_launcher_result_box_measure(GtkWidget *widget, GtkOrientation orientation, gint for_size,
-                                gint *minimum, gint *natural, gint *minimum_baseline, gint *natural_baseline)
+bob_launcher_result_box_measure(GtkWidget *widget, GtkOrientation orientation, int for_size,
+                                int *minimum, int *natural, int *minimum_baseline, int *natural_baseline)
 {
     *minimum_baseline = *natural_baseline = -1;
     *minimum = *natural = 0;
 
-    const gint visible = bob_launcher_result_box_visible_size;
+    const int visible = bob_launcher_result_box_visible_size;
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
 
     if (orientation == GTK_ORIENTATION_VERTICAL) {
-        for (gint i = 0; i < visible; i++) {
-            gint sep_nat, row_nat;
+        for (int i = 0; i < visible; i++) {
+            int sep_nat, row_nat;
             gtk_widget_measure(GTK_WIDGET(separators[i]), GTK_ORIENTATION_VERTICAL, for_size, NULL, &sep_nat, NULL, NULL);
             sep_sizes[i] = sep_nat;
             gtk_widget_measure(GTK_WIDGET(pool[i]), GTK_ORIENTATION_VERTICAL, for_size, NULL, &row_nat, NULL, NULL);
@@ -285,8 +285,8 @@ bob_launcher_result_box_measure(GtkWidget *widget, GtkOrientation orientation, g
             *natural += sep_nat + row_nat;
         }
     } else {
-        for (gint i = 0; i < visible; i++) {
-            gint row_nat;
+        for (int i = 0; i < visible; i++) {
+            int row_nat;
             gtk_widget_measure(GTK_WIDGET(pool[i]), GTK_ORIENTATION_HORIZONTAL, -1, NULL, &row_nat, NULL, NULL);
             if (row_nat > *natural)
                 *natural = row_nat;
@@ -295,15 +295,15 @@ bob_launcher_result_box_measure(GtkWidget *widget, GtkOrientation orientation, g
 }
 
 static void
-bob_launcher_result_box_size_allocate(GtkWidget *widget, gint width, gint height, gint baseline)
+bob_launcher_result_box_size_allocate(GtkWidget *widget, int width, int height, int baseline)
 {
-    const gint visible = bob_launcher_result_box_visible_size;
+    const int visible = bob_launcher_result_box_visible_size;
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
 
     GskTransform *transform = NULL;
     graphene_point_t offset = GRAPHENE_POINT_INIT(0, 0);
 
-    for (gint i = 0; i < visible; i++) {
+    for (int i = 0; i < visible; i++) {
         gtk_widget_allocate(GTK_WIDGET(separators[i]), width, sep_sizes[i], baseline,
                             transform ? gsk_transform_ref(transform) : NULL);
         offset.y = sep_sizes[i];
@@ -320,13 +320,13 @@ bob_launcher_result_box_size_allocate(GtkWidget *widget, gint width, gint height
 static void
 bob_launcher_result_box_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 {
-    const gint visible = bob_launcher_result_box_visible_size;
+    const int visible = bob_launcher_result_box_visible_size;
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
 
-    for (gint i = 0; i < visible; i++)
+    for (int i = 0; i < visible; i++)
         gtk_widget_snapshot_child(widget, GTK_WIDGET(separators[i]), snapshot);
 
-    for (gint i = 0; i < visible; i++)
+    for (int i = 0; i < visible; i++)
         gtk_widget_snapshot_child(widget, GTK_WIDGET(pool[i]), snapshot);
 }
 

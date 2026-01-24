@@ -98,8 +98,6 @@ static uint64_t pack_match_data(ResultContainer* c,
 }
 
 void container_destroy(ResultContainer* container) {
-    if (!container) return;
-
     container->local_items_size = 0;
     free(container->local_items);
     container->local_items = NULL;
@@ -112,10 +110,10 @@ void container_destroy(ResultContainer* container) {
     free(container);
 }
 
-static void container_flush_items_internal(ResultContainer* container) {
+void container_flush_items(ResultContainer* container) {
     if (!container || !container->local_items_size) return;
 
-    int write_start = atomic_fetch_add(container->global_items_size, container->local_items_size);
+    int write_start = atomic_fetch_add_explicit(container->global_items_size, container->local_items_size, memory_order_relaxed);
 
     memcpy(container->global_items + write_start, container->local_items, container->local_items_size * sizeof(uint64_t));
     container->local_items_size = 0;
@@ -148,7 +146,7 @@ bool result_container_insert(ResultContainer* container, uint32_t hash, int32_t 
     }
 
     if (container->local_items_size >= SHEET_SIZE) {
-        container_flush_items_internal(container);
+        container_flush_items(container);
     }
 
     ResultSheet* sheet = container->current_sheet;

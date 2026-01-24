@@ -59,7 +59,7 @@ void string_builder_free(StringBuilder* sb) {
     }
 }
 
-const char* string_builder_get_str(StringBuilder* sb) {
+static inline const char* string_builder_get_str(StringBuilder* sb) {
     return sb ? sb->str : "";
 }
 
@@ -291,13 +291,11 @@ void state_append_query(const char* tail) {
                                  tail);
 
     state_cursor_positions[state_sf] += utf8_char_count(tail);
-    controller_start_search(state_get_query());
+    const char* q = state_get_query();
+    controller_start_search(q);
 
-    size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(
-        state_get_query(),
-        byte_pos
-    );
+    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
+    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
 }
 
 void state_char_left() {

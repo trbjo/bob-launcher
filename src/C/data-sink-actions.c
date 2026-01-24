@@ -62,7 +62,7 @@ void action_set_free(ActionSetInternal* self) {
 HashSet* action_set_to_hashset(ActionSetInternal* self) {
     if (!self) return NULL;
 
-    container_flush_items(self->hsh, self->rc);
+    container_flush_items(self->rc);
     container_return_sheet(self->hsh, self->rc);
     hashset_prepare_new(self->hsh);
     container_destroy(self->rc);

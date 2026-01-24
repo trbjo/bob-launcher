@@ -104,7 +104,7 @@ HashSet* data_sink_search_for_plugins(const char* query, int event_id) {
     free(indices);
     free_string_info(si);
 
-    container_flush_items(hsh, rc);
+    container_flush_items(rc);
     container_return_sheet(hsh, rc);
     container_destroy(rc);
 
@@ -139,7 +139,7 @@ HashSet* data_sink_search_for_targets(const char* query, BobLauncherActionTarget
     umd->action_target = g_object_ref(a);
     result_container_add_lazy_unique(rc, 100, create_unknown_match, umd, free_unknown_match_data);
 
-    container_flush_items(hsh, rc);
+    container_flush_items(rc);
     container_return_sheet(hsh, rc);
     container_destroy(rc);
 

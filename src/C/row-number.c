@@ -92,8 +92,8 @@ bob_launcher_row_number_new(int row_num)
 
     gtk_widget_set_halign(GTK_WIDGET(self), GTK_ALIGN_CENTER);
 
-    const char *classes[] = { "shortcut", NULL };
-    gtk_widget_set_css_classes(GTK_WIDGET(self), classes);
+    // const char *classes[] = { "row-number", NULL };
+    // gtk_widget_set_css_classes(GTK_WIDGET(self), classes);
 
     self->layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), NULL);
     pango_layout_set_alignment(self->layout, PANGO_ALIGN_CENTER);
