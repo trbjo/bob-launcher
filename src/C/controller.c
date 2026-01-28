@@ -41,7 +41,7 @@ extern int data_sink_find_plugin_by_name (const char* query);
 extern int bob_launcher_result_box_box_size;
 extern int bob_launcher_result_box_visible_size;
 
-extern void bob_launcher_query_container_adjust_label_for_query (const char* text, int cursor_position);
+extern void bob_launcher_query_container_adjust_label_for_query();
 extern void bob_launcher_scroll_controller_reset (void);
 
 extern void bob_launcher_app_open_settings();
@@ -265,7 +265,7 @@ void controller_execute(bool should_hide) {
 
         state_update_provider(bob_launcher_SEARCHING_FOR_TARGETS, result_provider, 0);
         state_update_layout(bob_launcher_SEARCHING_FOR_TARGETS);
-        bob_launcher_query_container_adjust_label_for_query("", 0);
+        bob_launcher_query_container_adjust_label_for_query();
         return; // don't execute with an empty target
     }
 

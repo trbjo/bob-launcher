@@ -1,6 +1,109 @@
 #include "match-row-label.h"
 #include "description.h"
+#include "fast-label.h"
 #include <math.h>
+#include <time.h>
+
+/* ============================================================================
+ * Performance Diagnostics - set to 1 to enable
+ * ============================================================================ */
+#define PERF_DIAGNOSTICS 1
+
+#if PERF_DIAGNOSTICS
+static struct {
+    int64_t set_text_total;
+    int64_t set_description_total;
+    int64_t process_node_total;
+    int64_t measure_total;
+    int64_t snapshot_total;
+    int64_t snapshot_mask_total;
+    /* Detailed process_node breakdown */
+    int64_t acquire_total;
+    int64_t css_total;
+    int64_t content_total;
+    int64_t visibility_total;
+    int64_t reparent_total;
+    int set_text_count;
+    int set_desc_count;
+    int measure_count;
+    int snapshot_count;
+    int process_node_count;
+    int frame_count;
+} perf_stats = {0};
+
+static inline int64_t perf_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
+void bob_launcher_match_row_label_print_perf_stats(void) {
+    g_print("=== MatchRowLabel Perf (frame %d) ===\n", perf_stats.frame_count);
+    if (perf_stats.set_text_count > 0)
+        g_print("  set_text:        %6.2f µs × %d = %6.2f µs\n",
+                perf_stats.set_text_total / 1000.0 / perf_stats.set_text_count,
+                perf_stats.set_text_count,
+                perf_stats.set_text_total / 1000.0);
+    if (perf_stats.set_desc_count > 0)
+        g_print("  set_description: %6.2f µs × %d = %6.2f µs\n",
+                perf_stats.set_description_total / 1000.0 / perf_stats.set_desc_count,
+                perf_stats.set_desc_count,
+                perf_stats.set_description_total / 1000.0);
+    if (perf_stats.process_node_count > 0) {
+        g_print("    process_node breakdown (%d calls):\n", perf_stats.process_node_count);
+        g_print("      acquire:     %6.2f µs\n", perf_stats.acquire_total / 1000.0);
+        g_print("      css:         %6.2f µs\n", perf_stats.css_total / 1000.0);
+        g_print("      content:     %6.2f µs\n", perf_stats.content_total / 1000.0);
+        g_print("      visibility:  %6.2f µs\n", perf_stats.visibility_total / 1000.0);
+        g_print("      reparent:    %6.2f µs\n", perf_stats.reparent_total / 1000.0);
+    }
+    if (perf_stats.measure_count > 0)
+        g_print("  measure:         %6.2f µs × %d = %6.2f µs\n",
+                perf_stats.measure_total / 1000.0 / perf_stats.measure_count,
+                perf_stats.measure_count,
+                perf_stats.measure_total / 1000.0);
+    if (perf_stats.snapshot_count > 0)
+        g_print("  snapshot:        %6.2f µs × %d = %6.2f µs\n",
+                perf_stats.snapshot_total / 1000.0 / perf_stats.snapshot_count,
+                perf_stats.snapshot_count,
+                perf_stats.snapshot_total / 1000.0);
+    if (perf_stats.snapshot_mask_total > 0)
+        g_print("    snapshot_mask: %6.2f µs\n", perf_stats.snapshot_mask_total / 1000.0);
+    int64_t total = perf_stats.set_text_total + perf_stats.set_description_total +
+                    perf_stats.measure_total + perf_stats.snapshot_total;
+    g_print("  TOTAL:           %6.2f µs\n", total / 1000.0);
+    g_print("=====================================\n");
+}
+
+void bob_launcher_match_row_label_reset_perf_stats(void) {
+    /* Print stats from previous frame before resetting */
+    if (perf_stats.frame_count > 0 &&
+        (perf_stats.set_text_count > 0 || perf_stats.set_desc_count > 0)) {
+        bob_launcher_match_row_label_print_perf_stats();
+    }
+
+    perf_stats.frame_count++;
+    perf_stats.set_text_total = 0;
+    perf_stats.set_description_total = 0;
+    perf_stats.process_node_total = 0;
+    perf_stats.measure_total = 0;
+    perf_stats.snapshot_total = 0;
+    perf_stats.snapshot_mask_total = 0;
+    perf_stats.acquire_total = 0;
+    perf_stats.css_total = 0;
+    perf_stats.content_total = 0;
+    perf_stats.visibility_total = 0;
+    perf_stats.reparent_total = 0;
+    perf_stats.set_text_count = 0;
+    perf_stats.set_desc_count = 0;
+    perf_stats.measure_count = 0;
+    perf_stats.snapshot_count = 0;
+    perf_stats.process_node_count = 0;
+}
+#else
+void bob_launcher_match_row_label_print_perf_stats(void) {}
+void bob_launcher_match_row_label_reset_perf_stats(void) {}
+#endif
 
 typedef struct {
     GtkWidget *widget;
@@ -288,21 +391,18 @@ acquire_image(BobLauncherMatchRowLabel *self)
     return icon;
 }
 
-static GtkLabel *
+static BobLauncherFastLabel *
 acquire_label(BobLauncherMatchRowLabel *self)
 {
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
-    GtkLabel *label;
+    BobLauncherFastLabel *label;
     if (priv->visible_labels < (int)priv->labels->len) {
         label = g_ptr_array_index(priv->labels, priv->visible_labels);
     } else {
-        label = GTK_LABEL(gtk_label_new(""));
-        gtk_label_set_xalign(label, 0.0f);
-        gtk_label_set_single_line_mode(label, TRUE);
+        label = bob_launcher_fast_label_new();
         gtk_widget_set_hexpand(GTK_WIDGET(label), TRUE);
         gtk_widget_set_valign(GTK_WIDGET(label), GTK_ALIGN_BASELINE_CENTER);
         gtk_widget_set_vexpand(GTK_WIDGET(label), TRUE);
-        gtk_widget_set_overflow(GTK_WIDGET(label), GTK_OVERFLOW_VISIBLE);
         g_object_ref_sink(label);
         g_ptr_array_add(priv->labels, label);
     }
@@ -388,11 +488,29 @@ process_node(BobLauncherMatchRowLabel *self, DescType type, void *data)
 {
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
+#if PERF_DIAGNOSTICS
+    int64_t t0, t1;
+    perf_stats.process_node_count++;
+#endif
+
     switch (type) {
     case DESC_IMAGE: {
         ImageDesc *desc = data;
+#if PERF_DIAGNOSTICS
+        t0 = perf_now();
+#endif
         BobLauncherTextImage *icon = acquire_image(self);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.acquire_total += t1 - t0;
+        t0 = t1;
+#endif
         bob_launcher_text_image_update_icon_name(icon, desc->icon_name);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.content_total += t1 - t0;
+        t0 = t1;
+#endif
         set_widget_css_class(GTK_WIDGET(icon), desc->css_class);
 
         if (desc->click_func != NULL) {
@@ -402,18 +520,36 @@ process_node(BobLauncherMatchRowLabel *self, DescType type, void *data)
         } else {
             gtk_widget_set_can_target(GTK_WIDGET(icon), FALSE);
         }
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.css_total += t1 - t0;
+        t0 = t1;
+#endif
         gtk_widget_set_visible(GTK_WIDGET(icon), TRUE);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.visibility_total += t1 - t0;
+        t0 = t1;
+#endif
         add_widget_to_self(self, GTK_WIDGET(icon));
+#if PERF_DIAGNOSTICS
+        perf_stats.reparent_total += perf_now() - t0;
+#endif
         break;
     }
 
     case DESC_TEXT: {
         TextDesc *desc = data;
-        GtkLabel *label = acquire_label(self);
+#if PERF_DIAGNOSTICS
+        t0 = perf_now();
+#endif
+        BobLauncherFastLabel *label = acquire_label(self);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.acquire_total += t1 - t0;
+        t0 = t1;
+#endif
         set_widget_css_class(GTK_WIDGET(label), desc->css_class);
-        gtk_label_set_text(label, desc->text);
-        gtk_label_set_attributes(label, desc->attrs);
-
         if (desc->click_func != NULL) {
             add_click_binding(priv, GTK_WIDGET(label), desc->click_func, desc->click_target);
             gtk_widget_add_css_class(GTK_WIDGET(label), "clickable");
@@ -421,28 +557,69 @@ process_node(BobLauncherMatchRowLabel *self, DescType type, void *data)
         } else {
             gtk_widget_set_can_target(GTK_WIDGET(label), FALSE);
         }
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.css_total += t1 - t0;
+        t0 = t1;
+#endif
+        bob_launcher_fast_label_set_text(label, desc->text, desc->attrs);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.content_total += t1 - t0;
+        t0 = t1;
+#endif
         gtk_widget_set_visible(GTK_WIDGET(label), TRUE);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.visibility_total += t1 - t0;
+        t0 = t1;
+#endif
         add_widget_to_self(self, GTK_WIDGET(label));
+#if PERF_DIAGNOSTICS
+        perf_stats.reparent_total += perf_now() - t0;
+#endif
         break;
     }
 
     case DESC_CONTAINER: {
         Description *desc = data;
+#if PERF_DIAGNOSTICS
+        t0 = perf_now();
+#endif
         BobLauncherMatchRowLabel *child = acquire_child_label(self);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.acquire_total += t1 - t0;
+        t0 = t1;
+#endif
         set_widget_css_class(GTK_WIDGET(child), desc->css_class);
-
         if (desc->click_func != NULL) {
             add_click_binding(priv, GTK_WIDGET(child), desc->click_func, desc->click_target);
             gtk_widget_add_css_class(GTK_WIDGET(child), "clickable");
         }
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.css_total += t1 - t0;
+        t0 = t1;
+#endif
         gtk_widget_set_visible(GTK_WIDGET(child), TRUE);
+#if PERF_DIAGNOSTICS
+        t1 = perf_now();
+        perf_stats.visibility_total += t1 - t0;
+#endif
 
         for (int i = 0; i < desc->count; i++) {
             process_node(child, desc->types[i], desc->members[i]);
         }
         hide_unused_widgets(child);
 
+#if PERF_DIAGNOSTICS
+        t0 = perf_now();
+#endif
         add_widget_to_self(self, GTK_WIDGET(child));
+#if PERF_DIAGNOSTICS
+        perf_stats.reparent_total += perf_now() - t0;
+#endif
         break;
     }
     }
@@ -453,22 +630,34 @@ bob_launcher_match_row_label_set_text(BobLauncherMatchRowLabel *self,
                                        const char *text,
                                        PangoAttrList *attrs)
 {
+#if PERF_DIAGNOSTICS
+    int64_t start = perf_now();
+#endif
+
     reset(self);
 
-    GtkLabel *label = acquire_label(self);
+    BobLauncherFastLabel *label = acquire_label(self);
     gtk_widget_set_css_classes(GTK_WIDGET(label), NULL);
-    gtk_label_set_text(label, text);
-    gtk_label_set_attributes(label, attrs);
+    bob_launcher_fast_label_set_text(label, text, attrs);
     gtk_widget_set_visible(GTK_WIDGET(label), TRUE);
     add_widget_to_self(self, GTK_WIDGET(label));
 
     hide_unused_widgets(self);
+
+#if PERF_DIAGNOSTICS
+    perf_stats.set_text_total += perf_now() - start;
+    perf_stats.set_text_count++;
+#endif
 }
 
 void
 bob_launcher_match_row_label_set_description(BobLauncherMatchRowLabel *self,
                                               Description *desc)
 {
+#if PERF_DIAGNOSTICS
+    int64_t start = perf_now();
+#endif
+
     reset(self);
 
     set_widget_css_class(GTK_WIDGET(self), desc->css_class);
@@ -478,11 +667,24 @@ bob_launcher_match_row_label_set_description(BobLauncherMatchRowLabel *self,
         gtk_widget_add_css_class(GTK_WIDGET(self), "clickable");
     }
 
+#if PERF_DIAGNOSTICS
+    int64_t process_start = perf_now();
+#endif
+
     for (int i = 0; i < desc->count; i++) {
         process_node(self, desc->types[i], desc->members[i]);
     }
 
+#if PERF_DIAGNOSTICS
+    perf_stats.process_node_total += perf_now() - process_start;
+#endif
+
     hide_unused_widgets(self);
+
+#if PERF_DIAGNOSTICS
+    perf_stats.set_description_total += perf_now() - start;
+    perf_stats.set_desc_count++;
+#endif
 }
 
 gboolean
@@ -518,9 +720,8 @@ bob_launcher_match_row_label_reset(BobLauncherMatchRowLabel *self)
 
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
     for (guint i = 0; i < priv->labels->len; i++) {
-        GtkLabel *label = g_ptr_array_index(priv->labels, i);
-        gtk_label_set_attributes(label, NULL);
-        gtk_label_set_text(label, "");
+        BobLauncherFastLabel *label = g_ptr_array_index(priv->labels, i);
+        bob_launcher_fast_label_set_text(label, "", NULL);
     }
 }
 
@@ -537,6 +738,10 @@ bob_launcher_match_row_label_new(gchar **css_classes, gint css_classes_length1)
 static void
 bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 {
+#if PERF_DIAGNOSTICS
+    int64_t start = perf_now();
+#endif
+
     BobLauncherMatchRowLabel *self = (BobLauncherMatchRowLabel*)widget;
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
@@ -551,8 +756,16 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
             gtk_widget_snapshot_child(widget, sibling, snapshot);
             sibling = gtk_widget_get_next_sibling(sibling);
         }
+#if PERF_DIAGNOSTICS
+        perf_stats.snapshot_total += perf_now() - start;
+        perf_stats.snapshot_count++;
+#endif
         return;
     }
+
+#if PERF_DIAGNOSTICS
+    int64_t mask_start = perf_now();
+#endif
 
     if (need_left_mask) {
         float progress = MIN((float)fabs(priv->scroll_position), FADE_WIDTH);
@@ -584,6 +797,10 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
                                         priv->stops, 4);
     gtk_snapshot_pop(snapshot);
 
+#if PERF_DIAGNOSTICS
+    perf_stats.snapshot_mask_total += perf_now() - mask_start;
+#endif
+
     GtkWidget *sibling = gtk_widget_get_first_child(widget);
     int count = 0;
     while (sibling != NULL && count++ < priv->current_widget_index) {
@@ -600,6 +817,11 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     } else {
         priv->total_overhang = 0.0;
     }
+
+#if PERF_DIAGNOSTICS
+    perf_stats.snapshot_total += perf_now() - start;
+    perf_stats.snapshot_count++;
+#endif
 }
 
 static void
@@ -629,6 +851,10 @@ bob_launcher_match_row_label_measure(GtkWidget *widget, GtkOrientation orientati
                                       int for_size, int *minimum, int *natural,
                                       int *minimum_baseline, int *natural_baseline)
 {
+#if PERF_DIAGNOSTICS
+    int64_t start = perf_now();
+#endif
+
     BobLauncherMatchRowLabel *self = (BobLauncherMatchRowLabel*)widget;
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
 
@@ -662,6 +888,11 @@ bob_launcher_match_row_label_measure(GtkWidget *widget, GtkOrientation orientati
             count++;
         }
     }
+
+#if PERF_DIAGNOSTICS
+    perf_stats.measure_total += perf_now() - start;
+    perf_stats.measure_count++;
+#endif
 }
 
 static GtkSizeRequestMode

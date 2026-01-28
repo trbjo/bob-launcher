@@ -4,6 +4,7 @@
 #include "atomic_helpers.h"
 #include "systemd-scope.h"
 #include "bob-launcher.h"
+#include "path-utils.h"
 
 #include <gio/gdesktopappinfo.h>
 #include <gdk/gdk.h>
@@ -13,11 +14,17 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
 
 #define LAUNCH_FILE_ATTRIBUTES G_FILE_ATTRIBUTE_STANDARD_TYPE "," G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE
 extern char **environ;
+
+static int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
 
 struct SystemdLauncher {
     DBusConnection *connection;
@@ -164,22 +171,17 @@ systemd_launcher_launch_files(SystemdLauncher *self, GList *files, char **env)
         char *original_uri = g_file_get_uri(file);
         char *path = g_file_get_path(file);
 
-        /* Strip line:column suffix if present (e.g., file.txt:10:5) */
-        if (path != NULL) {
-            GRegex *regex = g_regex_new("^(.+?)(?::\\d+(?::\\d+)?)?$", 0, 0, NULL);
-            GMatchInfo *match_info = NULL;
-
-            if (g_regex_match(regex, path, 0, &match_info)) {
-                char *clean_path = g_match_info_fetch(match_info, 1);
-                g_free(path);
-                path = clean_path;
-            }
-
-            g_match_info_free(match_info);
-            g_regex_unref(regex);
+        if (path == NULL) {
+            g_free(original_uri);
+            continue;
         }
 
-        GFile *clean_file = g_file_new_for_path(path);
+        /* Find base path, stripping :line:column suffix if needed */
+        const char *suffix = path_find_existing_base(path, file_exists, 2);
+        char *base_path = suffix ? strndup(path, suffix - path) : path;
+
+        GFile *clean_file = g_file_new_for_path(base_path);
+        if (suffix) free(base_path);
         g_free(path);
 
         GError *error = NULL;
@@ -281,10 +283,25 @@ systemd_launcher_launch_uris(SystemdLauncher *self, GList *uris, char **env)
 
         if (g_strcmp0(scheme, "file") == 0) {
             GFile *file = g_file_new_for_uri(uri);
-            GError *error = NULL;
-            GFileInfo *info = g_file_query_info(file, LAUNCH_FILE_ATTRIBUTES,
-                                                G_FILE_QUERY_INFO_NONE, NULL, &error);
+            char *path = g_file_get_path(file);
             g_object_unref(file);
+
+            if (path == NULL) {
+                g_free(scheme);
+                continue;
+            }
+
+            const char *suffix = path_find_existing_base(path, file_exists, 2);
+            char *base_path = suffix ? strndup(path, suffix - path) : path;
+
+            GFile *query_file = g_file_new_for_path(base_path);
+            if (suffix) free(base_path);
+            g_free(path);
+
+            GError *error = NULL;
+            GFileInfo *info = g_file_query_info(query_file, LAUNCH_FILE_ATTRIBUTES,
+                                                G_FILE_QUERY_INFO_NONE, NULL, &error);
+            g_object_unref(query_file);
 
             if (error != NULL) {
                 g_warning("Could not query file info: %s", error->message);

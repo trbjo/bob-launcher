@@ -98,7 +98,7 @@ static void on_theme_changed(GtkIconTheme *theme, gpointer user_data) {
 }
 
 void icon_cache_service_initialize() {
-    icon_cache = g_hash_table_new(g_direct_hash, g_direct_equal);
+    icon_cache = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
     mime_type_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     theme = gtk_icon_theme_get_for_display(gdk_display_get_default());

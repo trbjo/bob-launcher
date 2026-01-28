@@ -1,7 +1,9 @@
 #include "bob-launcher.h"
 #include "result-box.h"
 #include <state.h>
+#include <thread-manager.h>
 #include <match.h>
+#include <match-row-label.h>
 
 typedef struct _BobLauncherMatchRowPrivate BobLauncherMatchRowPrivate;
 struct _BobLauncherMatchRow {
@@ -173,15 +175,11 @@ bob_launcher_result_box_get_request_mode(GtkWidget *widget)
     return GTK_SIZE_REQUEST_CONSTANT_SIZE;
 }
 
-static inline gboolean
-should_swap(BobLauncherMatchRow *a, BobLauncherMatchRow *b)
-{
+static inline gboolean should_swap(BobLauncherMatchRow *a, BobLauncherMatchRow *b) {
     return a->event_id < b->event_id || (a->event_id == b->event_id && a->abs_index > b->abs_index);
 }
 
-static void
-sort_row_pool(void)
-{
+static void sort_row_pool(void) {
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
     const int len = bob_launcher_result_box_row_pool_length1;
 
@@ -199,6 +197,8 @@ sort_row_pool(void)
 void
 bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provider, int selected_index)
 {
+    bob_launcher_match_row_label_reset_perf_stats();
+
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
     const int box_size = bob_launcher_result_box_box_size;
 
@@ -248,7 +248,6 @@ bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provi
         bob_launcher_match_row_update(row, si, abs_index - start_index, abs_index, selected_index == abs_index, event_id);
     }
 
-    free_string_info(si);
     sort_row_pool();
 
     const int preceding = selected_index - start_index;
@@ -259,10 +258,13 @@ bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provi
         gtk_widget_set_state_flags(GTK_WIDGET(separators[i]), flag, TRUE);
     }
 
-    if (old_visible != visible_size)
+    if (old_visible != visible_size) {
         gtk_widget_queue_resize(GTK_WIDGET(self));
-    else
+    } else {
         gtk_widget_queue_allocate(GTK_WIDGET(self));
+    }
+
+    free_string_info(si);
 }
 
 static void
@@ -294,9 +296,7 @@ bob_launcher_result_box_measure(GtkWidget *widget, GtkOrientation orientation, i
     }
 }
 
-static void
-bob_launcher_result_box_size_allocate(GtkWidget *widget, int width, int height, int baseline)
-{
+static void bob_launcher_result_box_size_allocate(GtkWidget *widget, int width, int height, int baseline) {
     const int visible = bob_launcher_result_box_visible_size;
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
 
@@ -317,9 +317,7 @@ bob_launcher_result_box_size_allocate(GtkWidget *widget, int width, int height, 
     gsk_transform_unref(transform);
 }
 
-static void
-bob_launcher_result_box_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
-{
+static void bob_launcher_result_box_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     const int visible = bob_launcher_result_box_visible_size;
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
 

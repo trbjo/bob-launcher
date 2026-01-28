@@ -29,8 +29,7 @@ extern int* state_selected_indices;
 extern int state_selected_indices_length1;
 extern StringBuilder** state_queries;
 extern int state_queries_length1;
-extern int* state_cursor_positions;
-extern int state_cursor_positions_length1;
+int state_get_cursor_position(void);
 
 /* StringBuilder functions */
 StringBuilder* string_builder_new();
@@ -38,7 +37,6 @@ void string_builder_free(StringBuilder* sb);
 bool string_builder_ensure_capacity(StringBuilder* sb, size_t new_len);
 bool string_builder_insert_at_char(StringBuilder* sb, size_t char_pos, const char* text);
 bool string_builder_erase_chars(StringBuilder* sb, size_t char_pos, size_t char_count);
-
 
 /* State management functions */
 HashSet* state_empty_provider(int event_id);

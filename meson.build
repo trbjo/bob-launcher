@@ -79,14 +79,14 @@ c_sources = files(
     'src/C/scroll-controller.h',
     'src/C/drag-controller.c',
     'src/C/drag-controller.h',
-    'src/C/query-container.c',
-    'src/C/query-container.h',
     'src/C/css.c',
     'src/C/css.h',
     'src/C/query-container.c',
     'src/C/query-container.h',
     'src/C/match-row-label.c',
     'src/C/match-row-label.h',
+    'src/C/fast-label.c',
+    'src/C/fast-label.h',
     'src/C/description.c',
     'src/C/description.h',
     'src/C/result-box.c',
@@ -105,7 +105,7 @@ c_sources = files(
     'src/C/events.c',
     'src/C/fzy/match.c',
     'src/C/string-utils.c',
-    'src/C/gthread_stub.c',
+    'src/C/no-thread-init.c',
     'src/C/fzy/config.h',
     'src/C/systemd_service_utils.h',
     'src/C/systemd_service_utils.c',
@@ -143,19 +143,19 @@ base_deps = [
 
 main_c_args = [
     '-include', join_paths(meson.current_source_dir(), 'src/C/no-thread-init.h'),
+    '-include', join_paths(meson.current_source_dir(), 'src/C/cheaper-gtk.h'),
     '-I/usr/include/xxhash',
     '-include', join_paths(meson.current_source_dir(), 'src/C/xxhash-override.h'),
 ]
 
 dbus_c_args = [
-'-I/usr/include/dbus-1.0',
-'-I/usr/lib/dbus-1.0/include'
+    '-I/usr/include/dbus-1.0',
+    '-I/usr/lib/dbus-1.0/include'
 ]
 
 base_vala_args = [
     '--vapidir=' + join_paths(meson.current_source_dir(), 'vapi'),
     '--pkg', 'launch-context',
-    # '--pkg', 'bob-launcher-plugin',
     '--pkg', 'file-match',
     '--pkg', 'icon-cache-service',
     '--pkg', 'controller',
@@ -171,7 +171,7 @@ base_vala_args = [
 ]
 
 launcher_lib = shared_library('bob-launcher',
-    lib_sources + c_sources + gresources,
+    c_sources + lib_sources + gresources,
     dependencies: base_deps,
     include_directories: inc_dirs,
     c_args: main_c_args + dbus_c_args,

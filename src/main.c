@@ -6,8 +6,16 @@
 #include <stdint.h>
 #include <sched.h>
 
+#include <sys/stat.h>
+
 #include "systemd_service.h"
 #include "systemd_service_utils.h"
+#include "C/path-utils.h"
+
+static int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
 
 static int flag_hidden = 0;
 static enum { MODE_NONE, MODE_PLUGIN, MODE_OPEN } flag_mode = MODE_NONE;
@@ -281,9 +289,22 @@ static int send_command_with_socket(int sock) {
 
         for (int i = 0; i < remaining_argc; i++) {
             char resolved_path[PATH_MAX];
+            char final_path[PATH_MAX + 32];
             char *path_to_use = remaining_args[i];
 
-            if (realpath(path_to_use, resolved_path)) {
+            const char *suffix = path_find_existing_base(path_to_use, file_exists, 2);
+            if (suffix) {
+                char *base_path = strndup(path_to_use, suffix - path_to_use);
+                if (realpath(base_path, resolved_path)) {
+                    if (suffix_has_column(suffix)) {
+                        snprintf(final_path, sizeof(final_path), "%s%s", resolved_path, suffix);
+                    } else {
+                        snprintf(final_path, sizeof(final_path), "%s%s:1", resolved_path, suffix);
+                    }
+                    path_to_use = final_path;
+                }
+                free(base_path);
+            } else if (realpath(path_to_use, resolved_path)) {
                 path_to_use = resolved_path;
             }
 

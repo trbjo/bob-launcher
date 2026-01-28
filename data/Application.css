@@ -145,83 +145,6 @@ window#launcher:backdrop match-row-label {
     opacity: 0.6;
 }
 
-#query-container {
-    background: @bg_transparent;
-    padding: 8px 8px;
-    font-size: 23pt;
-    font-weight: 300;
-}
-
-@keyframes backdrop-dim {
-    0%   { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
-    5%   { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
-    10%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
-    15%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
-    20%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
-    25%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
-    30%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
-    35%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
-    40%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
-    45%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
-    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
-    55%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
-    60%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
-    65%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
-    70%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
-    75%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
-    80%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
-    85%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
-    90%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
-    95%  { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
-    100% { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
-}
-
-@keyframes backdrop-undim {
-    0%   { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
-    5%   { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
-    10%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
-    15%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
-    20%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
-    25%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
-    30%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
-    35%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
-    40%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
-    45%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
-    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
-    55%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
-    60%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
-    65%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
-    70%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
-    75%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
-    80%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
-    85%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
-    90%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
-    95%  { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
-    100% { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
-}
-
-#query-container {
-    --backdrop-alpha: 1.0;
-    color: alpha(@theme_text_color, var(--backdrop-alpha));
-}
-
-#query-container:backdrop {
-    animation: backdrop-dim 120ms ease forwards;
-}
-
-#query-container:not(:backdrop) {
-    animation: backdrop-undim 120ms ease forwards;
-}
-
-#query-container.query-empty {
-    color: alpha(@theme_text_color, var(--placeholder-alpha));
-}
-
-
-#query-container > #draggable-image {
-    padding-left: 4px;
-}
-
 #progress-indicator {
     min-height: 1px;
 }
@@ -375,21 +298,87 @@ window#launcher:not(.highlighted) match-row .shortcut {
     opacity: 0.0;
 }
 
-@keyframes cursor-blink {
-    15% { opacity: 1.0; }
-    30% { opacity: 0.0; }
-    70% { opacity: 0.0; }
-    85% { opacity: 1.0; }
+@keyframes backdrop-dim {
+    0%   { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
+    5%   { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
+    10%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
+    15%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
+    20%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
+    25%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
+    30%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
+    35%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
+    40%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
+    45%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
+    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
+    55%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
+    60%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
+    65%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
+    70%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
+    75%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
+    80%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
+    85%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
+    90%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
+    95%  { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
+    100% { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
 }
 
-#text-cursor:backdrop {
+@keyframes backdrop-undim {
+    0%   { --backdrop-alpha: 0.6; --placeholder-alpha: 0.42; }
+    5%   { --backdrop-alpha: 0.62; --placeholder-alpha: 0.434; }
+    10%  { --backdrop-alpha: 0.64; --placeholder-alpha: 0.448; }
+    15%  { --backdrop-alpha: 0.66; --placeholder-alpha: 0.462; }
+    20%  { --backdrop-alpha: 0.68; --placeholder-alpha: 0.476; }
+    25%  { --backdrop-alpha: 0.70; --placeholder-alpha: 0.490; }
+    30%  { --backdrop-alpha: 0.72; --placeholder-alpha: 0.504; }
+    35%  { --backdrop-alpha: 0.74; --placeholder-alpha: 0.518; }
+    40%  { --backdrop-alpha: 0.76; --placeholder-alpha: 0.532; }
+    45%  { --backdrop-alpha: 0.78; --placeholder-alpha: 0.546; }
+    50%  { --backdrop-alpha: 0.80; --placeholder-alpha: 0.560; }
+    55%  { --backdrop-alpha: 0.82; --placeholder-alpha: 0.574; }
+    60%  { --backdrop-alpha: 0.84; --placeholder-alpha: 0.588; }
+    65%  { --backdrop-alpha: 0.86; --placeholder-alpha: 0.602; }
+    70%  { --backdrop-alpha: 0.88; --placeholder-alpha: 0.616; }
+    75%  { --backdrop-alpha: 0.90; --placeholder-alpha: 0.630; }
+    80%  { --backdrop-alpha: 0.92; --placeholder-alpha: 0.644; }
+    85%  { --backdrop-alpha: 0.94; --placeholder-alpha: 0.658; }
+    90%  { --backdrop-alpha: 0.96; --placeholder-alpha: 0.672; }
+    95%  { --backdrop-alpha: 0.98; --placeholder-alpha: 0.686; }
+    100% { --backdrop-alpha: 1.0; --placeholder-alpha: 0.7; }
+}
+
+#query-container {
+    background: @bg_transparent;
+    padding: 8px 8px;
+    font-size: 23pt;
+    font-weight: 300;
+    --backdrop-alpha: 1.0;
+    color: alpha(@theme_text_color, var(--backdrop-alpha));
+}
+
+#query-container:backdrop {
+    animation: backdrop-dim 120ms ease forwards;
+}
+
+#query-container:not(:backdrop) {
+    animation: backdrop-undim 120ms ease forwards;
+}
+
+#query-container > #draggable-image {
+    padding-left: 4px;
+}
+
+.text-cursor:backdrop {
     opacity: 0.0;
 }
-.placeholder-query #text-cursor {
+.placeholder-query .text-cursor {
     background-color: @theme_text_color;
 }
 
-#text-cursor {
+#query-container.query-empty {
+    color: alpha(@theme_text_color, var(--placeholder-alpha));
+}
+
+.text-cursor {
     animation: none;
     background-color: @theme_text_color;
     min-width: 1.5px;
@@ -397,7 +386,14 @@ window#launcher:not(.highlighted) match-row .shortcut {
     opacity: 1.0;
 }
 
-#text-cursor.blinking:not(:backdrop) {
+@keyframes cursor-blink {
+    15% { opacity: 1.0; }
+    30% { opacity: 0.0; }
+    70% { opacity: 0.0; }
+    85% { opacity: 1.0; }
+}
+
+.text-cursor.blinking:not(:backdrop) {
     animation-name: cursor-blink;
     animation-duration: 1.2s;
     animation-delay: 500ms;

@@ -2,7 +2,6 @@
 #define BOB_LAUNCHER_RESULT_BOX_H
 
 #include <gtk/gtk.h>
-#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 #include <hashset.h>
 
 G_BEGIN_DECLS

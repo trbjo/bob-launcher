@@ -1,7 +1,7 @@
 #include <gtk/gtk.h>
-#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 #include <glib-unix.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
@@ -9,6 +9,13 @@
 
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#include "path-utils.h"
+
+static int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
 
 #define SOCKET_ADDR_SYNC "io.github.trbjo.bob.launcher.sync"
 
@@ -27,7 +34,7 @@ extern void icon_cache_service_initialize(void);
 extern void keybindings_initialize(void);
 extern void input_region_initialize(void);
 extern void css_initialize(void);
-extern void teardown(void);
+extern void keyboard_teardown(void);
 extern void signal_ready_if_needed(uint8_t *socket_array, size_t len);
 extern bool controller_select_plugin(const char *plugin, const char *query);
 
@@ -36,11 +43,11 @@ extern BobLauncherBobLaunchContext *bob_launcher_bob_launch_context_get_instance
 extern gboolean bob_launcher_bob_launch_context_launch_uris_internal(
     BobLauncherBobLaunchContext *self, GList *uris, char **env, int env_length);
 
-static GMainLoop *main_loop = NULL;
 BobLauncherLauncherWindow *bob_launcher_app_main_win = NULL;
 static BobLauncherBobLaunchContext *launcher = NULL;
 static int listen_fd = -1;
 static uint listen_source_id = 0;
+static volatile int running = 1;
 
 static void toggle_visibility(void) {
     bool visible = gtk_widget_get_visible(GTK_WIDGET(bob_launcher_app_main_win));
@@ -172,15 +179,32 @@ static void handle_connection(int client_fd) {
             char *path = g_strndup((char *)(msg + offset), len);
             offset += len + 1;
 
-            if (g_file_test(path, G_FILE_TEST_EXISTS)) {
+            const char *suffix = path_find_existing_base(path, file_exists, 2);
+            if (suffix) {
+                char *base_path = strndup(path, suffix - path);
+                GFile *f = g_file_new_for_path(base_path);
+                char *base_uri = g_file_get_uri(f);
+                g_object_unref(f);
+                free(base_path);
+
+                size_t uri_len = strlen(base_uri) + strlen(suffix) + 3;
+                char *uri = malloc(uri_len);
+                if (suffix_has_column(suffix)) {
+                    snprintf(uri, uri_len, "%s%s", base_uri, suffix);
+                } else {
+                    snprintf(uri, uri_len, "%s%s:1", base_uri, suffix);
+                }
+                g_free(base_uri);
+                uris = g_list_append(uris, uri);
+            } else if (file_exists(path)) {
                 GFile *f = g_file_new_for_path(path);
                 char *uri = g_file_get_uri(f);
                 g_object_unref(f);
-                g_free(path);
                 uris = g_list_append(uris, uri);
             } else {
-                uris = g_list_append(uris, path);
+                uris = g_list_append(uris, g_strdup(path));
             }
+            g_free(path);
         }
 
         if (uris) {
@@ -212,10 +236,8 @@ static bool on_incoming_connection(int fd, GIOCondition condition, gpointer data
     return G_SOURCE_CONTINUE;
 }
 
-static void quit() {
-    if (main_loop) {
-        g_main_loop_quit(main_loop);
-    }
+static void quit(void) {
+    running = 0;
 }
 
 static bool on_close_signal(gpointer data) {
@@ -240,9 +262,8 @@ static void make_abstract_socket_name(const char *name, uint8_t *out, size_t *ou
 
 static void initialize(int fd) {
     int num_cores = thread_pool_num_cores();
-    thread_pool_init(num_cores - 1);
-    hashset_init(num_cores - 1);
-    thread_pool_pin_caller();
+    thread_pool_init(num_cores);
+    hashset_init(num_cores);
 
     gtk_init();
     g_object_set(gtk_settings_get_default(), "gtk-enable-accels", FALSE, NULL);
@@ -271,7 +292,7 @@ static void initialize(int fd) {
 }
 
 static void shutdown_app(void) {
-    teardown();
+    keyboard_teardown();
     plugin_loader_shutdown();
 
     if (bob_launcher_app_main_win) {
@@ -295,19 +316,13 @@ static void shutdown_app(void) {
 }
 
 int run_launcher(int socket_fd) {
-    main_loop = g_main_loop_new(NULL, FALSE);
-
     g_unix_signal_add(SIGINT, (GSourceFunc)on_close_signal, NULL);
     g_unix_signal_add(SIGTERM, (GSourceFunc)on_close_signal, NULL);
 
     initialize(socket_fd);
 
-    g_main_loop_run(main_loop);
+    while (running) g_main_context_iteration(NULL, TRUE);
 
     shutdown_app();
-
-    g_main_loop_unref(main_loop);
-    main_loop = NULL;
-
     return 0;
 }

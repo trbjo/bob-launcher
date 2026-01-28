@@ -6,8 +6,7 @@
 G_BEGIN_DECLS
 
 #define BOB_LAUNCHER_TYPE_LAUNCHER_WINDOW (bob_launcher_launcher_window_get_type())
-#define BOB_LAUNCHER_LAUNCHER_WINDOW(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BOB_LAUNCHER_TYPE_LAUNCHER_WINDOW, BobLauncherLauncherWindow))
-#define BOB_LAUNCHER_IS_LAUNCHER_WINDOW(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BOB_LAUNCHER_TYPE_LAUNCHER_WINDOW))
+#define BOB_LAUNCHER_LAUNCHER_WINDOW(obj) ((BobLauncherLauncherWindow*)obj)
 
 typedef struct _BobLauncherLauncherWindow BobLauncherLauncherWindow;
 typedef struct _BobLauncherLauncherWindowClass BobLauncherLauncherWindowClass;

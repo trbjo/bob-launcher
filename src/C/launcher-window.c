@@ -5,6 +5,7 @@
 #include <controller.h>
 #include <gtk4-layer-shell.h>
 #include <gdk/wayland/gdkwayland.h>
+#include <glib-unix.h>
 #include <wayland-client.h>
 #include <simple-keyboard.h>
 #include <cairo.h>
@@ -48,6 +49,20 @@ extern BobLauncherWidthResizeHandle *bob_launcher_width_resize_handle_new(void);
 
 /* Utils */
 extern GdkRectangle *bob_launcher_utils_get_current_display_size(GtkWindow *window);
+
+/* ============================================================================
+ * Keyboard repeat handler
+ * ============================================================================ */
+
+static gboolean
+on_repeat_ready(gint fd, GIOCondition condition, gpointer user_data)
+{
+    (void)fd;
+    (void)condition;
+    (void)user_data;
+    keyboard_handle_repeat();
+    return G_SOURCE_CONTINUE;
+}
 
 /* ============================================================================
  * InputRegion - Static module
@@ -335,7 +350,6 @@ on_monitor_changed(GdkSurface *surface, GdkMonitor *monitor, gpointer user_data)
 static void
 bob_launcher_launcher_window_size_allocate(GtkWidget *widget, gint width, gint height, gint baseline)
 {
-    // BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(widget);
     BobLauncherLauncherWindow *self = (BobLauncherLauncherWindow*)widget;
 
     BobLauncherLauncherWindowPrivate *priv = self->priv;
@@ -391,7 +405,6 @@ bob_launcher_launcher_window_hide(GtkWidget *widget)
 static void
 bob_launcher_launcher_window_show(GtkWidget *widget)
 {
-    // BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(widget);
     BobLauncherLauncherWindow *self = (BobLauncherLauncherWindow*)widget;
     BobLauncherLauncherWindowPrivate *priv = self->priv;
 
@@ -418,7 +431,6 @@ bob_launcher_launcher_window_show(GtkWidget *widget)
 static void
 bob_launcher_launcher_window_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
-    // BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(object);
     BobLauncherLauncherWindow *self = (BobLauncherLauncherWindow*)object;
 
     switch (prop_id) {
@@ -612,8 +624,6 @@ bob_launcher_launcher_window_new(void)
 void
 bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
 {
-    // g_return_if_fail(BOB_LAUNCHER_IS_LAUNCHER_WINDOW(self));
-
     GdkSurface *mysurf = gtk_native_get_surface(GTK_NATIVE(self));
     g_signal_connect_after(mysurf, "enter-monitor", G_CALLBACK(on_monitor_changed), self);
 
@@ -621,9 +631,13 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
 
     struct wl_surface *wayland_surface = gdk_wayland_surface_get_wl_surface(GDK_WAYLAND_SURFACE(mysurf));
 
-    initialize(wayland_surface,
+    keyboard_initialize(wayland_surface,
                controller_handle_key_press,
                controller_handle_key_release,
                controller_handle_focus_enter,
                controller_handle_focus_leave);
+
+    g_unix_fd_add(keyboard_get_repeat_fd(), G_IO_IN,
+                  (GUnixFDSourceFunc)on_repeat_ready, NULL);
+
 }

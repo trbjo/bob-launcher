@@ -2,7 +2,6 @@
 #define BOB_LAUNCHER_MATCH_ROW_LABEL_H
 
 #include <gtk/gtk.h>
-#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 #include "description.h"
 
 G_BEGIN_DECLS
@@ -32,6 +31,10 @@ gboolean bob_launcher_match_row_label_lookup_click(BobLauncherMatchRowLabel *sel
                                                     GtkWidget *widget,
                                                     ClickFunc *out_func,
                                                     void **out_target);
+
+/* Performance diagnostics - call after a search to see timing breakdown */
+void bob_launcher_match_row_label_print_perf_stats(void);
+void bob_launcher_match_row_label_reset_perf_stats(void);
 
 G_END_DECLS
 

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include "hashset.h"
 #include "thread-manager.h"
 #include "events.h"
@@ -32,10 +33,9 @@ static int _state_cursor_positions_size_ = 0;
 int state_find_next_word(bool right);
 extern void controller_start_search (const char* search_query);
 void bob_launcher_main_container_update_layout(HashSet* provider, int selected_index);
-extern void bob_launcher_query_container_adjust_label_for_query (const char* text, int cursor_position);
+extern void bob_launcher_query_container_adjust_label_for_query();
 typedef void (*TaskFunc)(void *data);
 
-/* StringBuilder functions */
 StringBuilder* string_builder_new() {
     StringBuilder* sb = (StringBuilder*) malloc(sizeof(StringBuilder));
     if (!sb) return NULL;
@@ -207,6 +207,7 @@ int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, i
     HashSet* old = state_providers[what];
     state_providers[what] = new_provider;
     thread_pool_run((TaskFunc)hashset_destroy, old, NULL);
+
     return 1;
 }
 
@@ -238,7 +239,7 @@ void state_reset() {
     }
 
     state_update_layout(bob_launcher_SEARCHING_FOR_SOURCES);
-    bob_launcher_query_container_adjust_label_for_query("", 0);
+    bob_launcher_query_container_adjust_label_for_query();
 }
 
 void state_delete_line() {
@@ -246,9 +247,9 @@ void state_delete_line() {
         string_builder_free(state_queries[state_sf]);
         state_queries[state_sf] = string_builder_new();
 
-        controller_start_search("");
         state_cursor_positions[state_sf] = 0;
-        bob_launcher_query_container_adjust_label_for_query("", 0);
+        bob_launcher_query_container_adjust_label_for_query();
+        controller_start_search("");
     }
 }
 
@@ -283,6 +284,12 @@ bool state_change_cursor_position(int index) {
     return true;
 }
 
+static inline void adjust_and_search() {
+    const char* q = state_get_query();
+    controller_start_search(q);
+    bob_launcher_query_container_adjust_label_for_query();
+}
+
 void state_append_query(const char* tail) {
     if (tail == NULL) return;
 
@@ -291,50 +298,38 @@ void state_append_query(const char* tail) {
                                  tail);
 
     state_cursor_positions[state_sf] += utf8_char_count(tail);
-    const char* q = state_get_query();
-
-    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
-    controller_start_search(q);
+    adjust_and_search();
 }
 
 void state_char_left() {
     if (state_change_cursor_position(state_cursor_positions[state_sf] - 1)) {
-        const char* q = state_get_query();
-        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
 void state_char_right() {
     if (state_change_cursor_position(state_cursor_positions[state_sf] + 1)) {
-        const char* q = state_get_query();
-        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
 void state_word_left() {
     int next_word = state_find_next_word(false);
     if (state_change_cursor_position(next_word)) {
-        const char* q = state_get_query();
-        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
 void state_word_right() {
     int next_word = state_find_next_word(true);
     if (state_change_cursor_position(next_word)) {
-        const char* q = state_get_query();
-        size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
 void state_line_begin() {
     if (state_change_cursor_position(0)) {
-        bob_launcher_query_container_adjust_label_for_query(state_get_query(), 0);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
@@ -342,8 +337,7 @@ void state_line_end() {
     const char* q = state_get_query();
     int char_len = utf8_char_count(q);
     if (state_change_cursor_position(char_len)) {
-        size_t byte_pos = utf8_char_to_byte_pos(q, char_len);
-        bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+        bob_launcher_query_container_adjust_label_for_query();
     }
 }
 
@@ -356,12 +350,7 @@ void state_delete_char_backward() {
     }
 
     string_builder_erase_chars(sb, state_cursor_positions[state_sf], 1);
-    const char* q = state_get_query();
-
-    controller_start_search(q);
-
-    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+    adjust_and_search();
 }
 
 void state_delete_char_forward() {
@@ -371,12 +360,7 @@ void state_delete_char_forward() {
     }
 
     string_builder_erase_chars(sb, state_cursor_positions[state_sf], 1);
-    const char* q = state_get_query();
-
-    controller_start_search(q);
-
-    size_t byte_pos = utf8_char_to_byte_pos(q, state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(q, byte_pos);
+    adjust_and_search();
 }
 
 void state_delete_word() {
@@ -397,13 +381,7 @@ void state_delete_word() {
     );
 
     state_change_cursor_position(next_word);
-    controller_start_search(state_get_query());
-
-    size_t byte_pos = utf8_char_to_byte_pos(state_get_query(), state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(
-        state_get_query(),
-        byte_pos
-    );
+    adjust_and_search();
 }
 
 int state_find_next_word(bool right) {
@@ -468,17 +446,20 @@ void state_change_category(BobLauncherSearchingFor what) {
     state_sf = (what == bob_launcher_SEARCHING_FOR_RESET) ?
                           bob_launcher_SEARCHING_FOR_SOURCES : what;
 
-    const char* text = string_builder_get_str(state_queries[state_sf]);
-    controller_start_search(text);
-    int char_len = utf8_char_count(text);
+    const char* q = state_get_query();
+    controller_start_search(q);
+    int char_len = utf8_char_count(q);
     state_change_cursor_position(char_len);
 
-    size_t byte_pos = utf8_char_to_byte_pos(text, state_cursor_positions[state_sf]);
-    bob_launcher_query_container_adjust_label_for_query(text, byte_pos);
+    bob_launcher_query_container_adjust_label_for_query();
 
     if (should_update) {
         state_update_layout(CURRENT_CATEGORY);
     }
+}
+
+int state_get_cursor_position(void) {
+    return state_cursor_positions[state_sf];
 }
 
 

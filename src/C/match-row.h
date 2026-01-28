@@ -2,7 +2,6 @@
 #define BOB_LAUNCHER_MATCH_ROW_H
 
 #include <gtk/gtk.h>
-#define GTK_WIDGET(obj) ((GtkWidget*)obj)
 #include "match.h"
 
 G_BEGIN_DECLS
