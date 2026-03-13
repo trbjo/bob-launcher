@@ -238,9 +238,8 @@ bob_launcher_bob_launch_context_launch_files_internal(BobLauncherLaunchContext *
 }
 
 gboolean
-bob_launcher_bob_launch_context_launch_uris_internal(BobLauncherLaunchContext *self,
-                                                  GList *uris,
-                                                  gchar **env)
+bob_launcher_bob_launch_context_launch_uris_internal(
+    BobLauncherLaunchContext *self, GList *uris, char **env, int env_length)
 {
     g_return_val_if_fail(BOB_LAUNCHER_IS_LAUNCH_CONTEXT(self), FALSE);
 

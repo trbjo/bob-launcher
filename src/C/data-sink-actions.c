@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <glib.h>
 #include <hashset.h>
-#include <match.h>
+#include <fzy/match.h>
 #include <result-container.h>
 #include <float.h>
 #include <math.h>

@@ -5,6 +5,7 @@
 #include <highlight.h>
 #include <state.h>
 #include <hashset.h>
+#include <fzy/match.h>
 #include <match.h>
 #include <icon-cache-service.h>
 #include <gdk/gdk.h>
@@ -237,7 +238,7 @@ tooltip_wrapper_instance_init(TooltipWrapper *self, gpointer klass)
     self->priv->request_mode = GTK_SIZE_REQUEST_CONSTANT_SIZE;
     self->priv->child = NULL;
 
-    self->priv->settings = g_settings_new(BOB_LAUNCHER_BOB_LAUNCHER_APP_ID ".ui");
+    self->priv->settings = g_settings_new(BOB_LAUNCHER_APP_ID ".ui");
     g_settings_bind(self->priv->settings, "tooltip-max-height", self, "max_height", G_SETTINGS_BIND_GET);
     g_settings_bind(self->priv->settings, "tooltip-max-width", self, "max_width", G_SETTINGS_BIND_GET);
 }
@@ -449,7 +450,7 @@ update_styling(BobLauncherMatchRow *self)
         pango_attr_list_unref(attrs);
     }
 
-    gtk_widget_queue_draw(GTK_WIDGET(self));
+    gtk_widget_queue_resize(GTK_WIDGET(self));
 }
 
 static gboolean
@@ -682,6 +683,17 @@ bob_launcher_match_row_finalize(GObject *obj)
 }
 
 static void
+bob_launcher_match_row_css_changed(GtkWidget *widget, GtkCssStyleChange *change)
+{
+    BobLauncherMatchRow *self = BOB_LAUNCHER_MATCH_ROW(widget);
+    BobLauncherMatchRowPrivate *priv = self->priv;
+    priv->match_row_height = 0;
+
+    gtk_widget_queue_resize(widget);
+    GTK_WIDGET_CLASS(bob_launcher_match_row_parent_class)->css_changed(widget, change);
+}
+
+static void
 bob_launcher_match_row_class_init(BobLauncherMatchRowClass *klass, gpointer klass_data)
 {
     bob_launcher_match_row_parent_class = g_type_class_peek_parent(klass);
@@ -696,6 +708,7 @@ bob_launcher_match_row_class_init(BobLauncherMatchRowClass *klass, gpointer klas
     widget_class->measure = bob_launcher_match_row_measure;
     widget_class->size_allocate = bob_launcher_match_row_size_allocate;
     widget_class->snapshot = bob_launcher_match_row_snapshot;
+    widget_class->css_changed = bob_launcher_match_row_css_changed;
 
     gtk_widget_class_set_css_name(widget_class, "match-row");
 

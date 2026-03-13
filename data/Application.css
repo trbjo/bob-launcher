@@ -155,11 +155,18 @@ match-row match-row-label text-image {
 }
 
 match-row match-row-label.description {
-    font-size: 9pt;
+    font-size: 12px;
+    padding-bottom: 3px;
+    padding-top: 1px;
 }
 
-match-row match-row-label.description > match-row-label.description-container .description-text,
-match-row match-row-label.description match-row-label .timestamp {
+match-row match-row-label.title {
+    font-size: 14px;
+    padding-bottom: 1px;
+    padding-top: 3px;
+}
+
+match-row match-row-label.description match-row-label.timestamp-group .timestamp {
     margin-right: 4px;
     font-size: 0;
     opacity: 0;
@@ -195,7 +202,6 @@ match-row match-row-label.description > match-row-label:first-child {
     margin-left: 0;
 }
 
-match-row match-row-label.description > match-row-label.description-container:hover .description-text,
 match-row match-row-label.description match-row-label.timestamp-group:hover .timestamp {
     font-size: 9pt;
     transition: font-size 300ms, opacity 300ms ease 200ms;

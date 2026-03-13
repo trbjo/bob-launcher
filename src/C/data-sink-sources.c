@@ -18,7 +18,6 @@ extern GPtrArray* plugin_loader_default_search_providers;
 extern int* state_selected_indices;
 extern HashSet** state_providers;
 
-extern int thread_pool_num_cores(void);
 extern int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, int selected_index);
 extern void state_update_layout(BobLauncherSearchingFor what);
 extern char* bob_launcher_match_get_title(BobLauncherMatch* match);

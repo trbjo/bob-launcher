@@ -1,4 +1,5 @@
 #include "bob-launcher.h"
+#include "constants.h"
 #include "result-box.h"
 #include <state.h>
 #include <thread-manager.h>
@@ -197,8 +198,6 @@ static void sort_row_pool(void) {
 void
 bob_launcher_result_box_update_layout(BobLauncherResultBox *self, HashSet *provider, int selected_index)
 {
-    bob_launcher_match_row_label_reset_perf_stats();
-
     BobLauncherMatchRow **pool = bob_launcher_result_box_row_pool;
     const int box_size = bob_launcher_result_box_box_size;
 
@@ -360,7 +359,7 @@ bob_launcher_result_box_instance_init(BobLauncherResultBox *self, gpointer klass
     self->priv = bob_launcher_result_box_get_instance_private(self);
     gtk_widget_set_name(GTK_WIDGET(self), "result-box");
 
-    self->priv->ui_settings = g_settings_new(BOB_LAUNCHER_BOB_LAUNCHER_APP_ID ".ui");
+    self->priv->ui_settings = g_settings_new(BOB_LAUNCHER_APP_ID ".ui");
     bob_launcher_result_box_box_size = g_settings_get_int(self->priv->ui_settings, "box-size");
 
     g_signal_connect(self->priv->ui_settings, "changed::box-size",

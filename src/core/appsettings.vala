@@ -1,5 +1,7 @@
 namespace BobLauncher {
     internal class AppSettings {
+        private const string BOB_LAUNCHER_APP_ID = "io.github.trbjo.bob.launcher";
+
         private static AppSettings? instance;
         internal UI ui { get; private set; }
         internal Plugins plugins { get; private set; }

@@ -185,11 +185,9 @@ static inline bool barrier_check_last(HashSet* s, int* bi) {
 }
 
 static inline void barrier_spin(HashSet* s, int bi) {
-    while (atomic_load_explicit(&s->bar[bi ^ 1].v, memory_order_relaxed)) {
-        __builtin_ia32_pause();
-        __builtin_ia32_pause();
-        __builtin_ia32_pause();
-        __builtin_ia32_pause();
+    int current;
+    while ((current = atomic_load_explicit(&s->bar[bi ^ 1].v, memory_order_relaxed))) {
+        syscall(SYS_futex, &s->bar[bi ^ 1].v, FUTEX_WAIT_PRIVATE, current, NULL, NULL, 0);
     }
     // Acquire fence: see all writes published before barrier_release's store
     atomic_thread_fence(memory_order_acquire);
@@ -198,6 +196,7 @@ static inline void barrier_spin(HashSet* s, int bi) {
 static inline void barrier_release(HashSet* s, int bi) {
     // Release: make all prior writes (including last thread's work) visible
     atomic_store_explicit(&s->bar[bi ^ 1].v, 0, memory_order_release);
+    syscall(SYS_futex, &s->bar[bi ^ 1].v, FUTEX_WAKE_PRIVATE, 256, NULL, NULL, 0);
 }
 
 static inline void barrier_wait(HashSet* s, int* bi) {

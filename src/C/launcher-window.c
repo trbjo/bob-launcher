@@ -1,5 +1,6 @@
 #include "launcher-window.h"
 #include "bob-launcher.h"
+#include "constants.h"
 #include <main-container.h>
 #include <state.h>
 #include <controller.h>
@@ -171,7 +172,7 @@ static void layershell_setup(GtkWindow *win, BobLauncherAppSettings *appsettings
         g_error("layershell_setup must be called before the window is realized");
 
     gtk_layer_init_for_window(win);
-    gtk_layer_set_namespace(win, BOB_LAUNCHER_BOB_LAUNCHER_APP_ID);
+    gtk_layer_set_namespace(win, BOB_LAUNCHER_APP_ID);
     gtk_layer_set_layer(win, GTK_LAYER_SHELL_LAYER_OVERLAY);
     gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_TOP, TRUE);
     gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_BOTTOM, TRUE);
@@ -414,12 +415,12 @@ bob_launcher_launcher_window_show(GtkWidget *widget)
         if (priv->inhibit_system_shortcuts && priv->surf != NULL)
             gdk_toplevel_inhibit_system_shortcuts(GDK_TOPLEVEL(priv->surf), NULL);
         if (priv->surf != NULL)
-            gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_BOB_LAUNCHER_APP_ID);
+            gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_APP_ID);
     } else {
         if (priv->inhibit_system_shortcuts && priv->surf != NULL)
             gdk_toplevel_inhibit_system_shortcuts(GDK_TOPLEVEL(priv->surf), NULL);
         if (priv->surf != NULL)
-            gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_BOB_LAUNCHER_APP_ID);
+            gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_APP_ID);
         GTK_WIDGET_CLASS(bob_launcher_launcher_window_parent_class)->show(widget);
     }
 }
@@ -516,8 +517,10 @@ bob_launcher_launcher_window_class_init(BobLauncherLauncherWindowClass *klass, g
 
 static void on_color_scheme_changed(GSettings *settings, const char *key, gpointer user_data) {
     char *scheme = g_settings_get_string(settings, "color-scheme");
-    bool prefer_dark = strcmp(scheme, "prefer-dark") == 0;
-    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", prefer_dark, NULL);
+    // GtkInterfaceColorScheme: 0=UNSUPPORTED, 1=DEFAULT, 2=DARK, 3=LIGHT
+    int gtk_scheme = strcmp(scheme, "prefer-dark") == 0 ? 2 :
+                     strcmp(scheme, "prefer-light") == 0 ? 3 : 1;
+    g_object_set(gtk_settings_get_default(), "gtk-interface-color-scheme", gtk_scheme, NULL);
     g_free(scheme);
 }
 
@@ -532,7 +535,7 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
     priv->client_side_shadow = FALSE;
     priv->inhibit_system_shortcuts = FALSE;
 
-    priv->settings = g_settings_new(BOB_LAUNCHER_BOB_LAUNCHER_APP_ID ".ui");
+    priv->settings = g_settings_new(BOB_LAUNCHER_APP_ID ".ui");
 
     g_settings_bind(priv->settings, "client-side-shadow", self, "client-side-shadow", G_SETTINGS_BIND_GET);
     g_signal_connect_after(priv->settings, "changed::client-side-shadow",

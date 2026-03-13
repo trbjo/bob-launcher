@@ -71,11 +71,11 @@ struct _BobLauncherQueryContainer {
     GtkWidget parent_instance;
     int last_text_height;
     BobLauncherQueryContainerCursorWidget *cursor_widget;
-    PangoLayout *base_layout;
+    PangoLayout *layout;
     graphene_matrix_t color_matrix;
     graphene_vec4_t color_offset;
     GdkPaintable *search_icon;
-    QueryRenderOutput* current_render_output;
+    QueryRenderOutput* current_render;
     int last_width;
     int last_height;
     int scale_factor;
@@ -188,28 +188,28 @@ static void build_render_nodes(QueryRenderInput* input) {
     int draggable_width = (input->display_mode >= DISPLAY_MODE_ACTION_PLACEHOLDER) ? instance->last_height : 0;
     int layout_width = instance->last_width - icon_width - draggable_width;
 
-    QueryRenderOutput *output = instance->current_render_output;
-
     size_t cursor_byte_pos = utf8_char_to_byte_pos(input->text, input->cursor_pos);
     PangoRectangle cursor_rect;
 
-    pango_layout_set_width(instance->base_layout, layout_width * PANGO_SCALE);
-    pango_layout_set_text(instance->base_layout, input->text, -1);
-    pango_layout_get_cursor_pos(instance->base_layout, cursor_byte_pos, &cursor_rect, NULL);
+    pango_layout_set_width(instance->layout, layout_width * PANGO_SCALE);
+    pango_layout_set_text(instance->layout, input->text, -1);
+    pango_layout_get_cursor_pos(instance->layout, cursor_byte_pos, &cursor_rect, NULL);
 
-    output->display_mode = input->display_mode;
+    QueryRenderOutput *r = instance->current_render;
+
+    r->display_mode = input->display_mode;
     if (input->icon_name) {
         GdkPaintable *icon = icon_cache_service_get_paintable_for_icon_name(
             input->icon_name, instance->last_height, instance->scale_factor);
         if (icon) {
-            output->match_icon = g_object_ref(icon);
+            r->match_icon = g_object_ref(icon);
         }
     } else {
-        g_clear_object(&output->match_icon);
+        g_clear_object(&r->match_icon);
     }
 
-    output->cursor_x = (float)cursor_rect.x / PANGO_SCALE;
-    output->cursor_y = (float)cursor_rect.y / PANGO_SCALE;
+    r->cursor_x = (float)cursor_rect.x / PANGO_SCALE;
+    r->cursor_y = (float)cursor_rect.y / PANGO_SCALE;
 
     gtk_widget_remove_css_class(GTK_WIDGET(instance->cursor_widget), "blinking");
     if (input->display_mode % 2 == 0) {
@@ -332,9 +332,9 @@ bob_launcher_query_container_instance_init(BobLauncherQueryContainer *self, gpoi
     gtk_widget_set_name(GTK_WIDGET(self), "query-container");
     gtk_widget_set_overflow(GTK_WIDGET(self), GTK_OVERFLOW_HIDDEN);
 
-    self->base_layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), NULL);
-    pango_layout_set_ellipsize(self->base_layout, PANGO_ELLIPSIZE_MIDDLE);
-    pango_layout_set_single_paragraph_mode(self->base_layout, TRUE);
+    self->layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), NULL);
+    pango_layout_set_ellipsize(self->layout, PANGO_ELLIPSIZE_MIDDLE);
+    pango_layout_set_single_paragraph_mode(self->layout, TRUE);
 
     bob_launcher_drag_and_drop_handler_setup(GTK_WIDGET(self), match_finder, self);
 
@@ -354,7 +354,7 @@ bob_launcher_query_container_instance_init(BobLauncherQueryContainer *self, gpoi
     gtk_widget_add_css_class(GTK_WIDGET(self->cursor_widget), "text");
 
     self->scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
-    self->current_render_output = calloc(1, sizeof(QueryRenderOutput));
+    self->current_render = calloc(1, sizeof(QueryRenderOutput));
 }
 
 static void
@@ -372,15 +372,15 @@ bob_launcher_query_container_finalize(GObject *obj)
         self->cursor_widget = NULL;
     }
 
-    if (self->base_layout) {
-        g_object_unref(self->base_layout);
-        self->base_layout = NULL;
+    if (self->layout) {
+        g_object_unref(self->layout);
+        self->layout = NULL;
     }
 
     g_clear_object(&self->search_icon);
 
-    g_clear_object(&self->current_render_output->match_icon);
-    free(self->current_render_output);
+    g_clear_object(&self->current_render->match_icon);
+    free(self->current_render);
 
     G_OBJECT_CLASS(bob_launcher_query_container_parent_class)->finalize(obj);
 }
@@ -393,14 +393,15 @@ bob_launcher_query_container_measure(GtkWidget *widget, GtkOrientation orientati
 
     BobLauncherQueryContainer *self = BOB_LAUNCHER_QUERY_CONTAINER(widget);
 
-    *minimum_baseline = *natural_baseline = -1;
 
     if (orientation == GTK_ORIENTATION_VERTICAL) {
-        int text_height;
+        int height;
+        pango_layout_get_size(self->layout, NULL, &height);
+        int baseline = pango_layout_get_baseline(self->layout);
 
-        pango_layout_get_pixel_size(self->base_layout, NULL, &text_height);
-
+        int text_height = PANGO_PIXELS_CEIL(height);
         *minimum = *natural = text_height;
+        *minimum_baseline = *natural_baseline = PANGO_PIXELS_CEIL(baseline);
 
         if (self->last_text_height != text_height) {
             self->last_text_height = text_height;
@@ -410,6 +411,7 @@ bob_launcher_query_container_measure(GtkWidget *widget, GtkOrientation orientati
             build_render_nodes(prepare_render_input());
         }
     } else {
+        *minimum_baseline = *natural_baseline = -1;
         *minimum = *natural = 0;
     }
 }
@@ -473,7 +475,7 @@ bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 
     BobLauncherQueryContainer *self = BOB_LAUNCHER_QUERY_CONTAINER(widget);
 
-    QueryRenderOutput *output = self->current_render_output;
+    QueryRenderOutput *r = self->current_render;
 
     int vertical_offset = self->last_height - self->last_text_height;
     if (vertical_offset) {
@@ -485,19 +487,19 @@ bob_launcher_query_container_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     gtk_widget_get_color(GTK_WIDGET(instance), &color);
     gtk_snapshot_push_opacity(snapshot, color.alpha);
 
-    snapshot_search_icon(self, snapshot, &color, output);
+    snapshot_search_icon(self, snapshot, &color, r);
 
-    snapshot_cursor(self, snapshot, output->cursor_x, output->cursor_y);
+    snapshot_cursor(self, snapshot, r->cursor_x, r->cursor_y);
 
-    if (output->display_mode % 2 == 0) {
+    if (r->display_mode % 2 == 0) {
         color.alpha = 1.0f; // don't apply twice.
     }
 
-    gtk_snapshot_append_layout(snapshot, self->base_layout, &color);
+    gtk_snapshot_append_layout(snapshot, self->layout, &color);
 
     gtk_snapshot_pop(snapshot);
 
-    snapshot_source_icon(self, snapshot, output->match_icon);
+    snapshot_source_icon(self, snapshot, r->match_icon);
 
     gtk_widget_add_css_class(GTK_WIDGET(instance->cursor_widget), "blinking");
 }

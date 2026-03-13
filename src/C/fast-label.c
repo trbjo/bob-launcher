@@ -6,7 +6,7 @@ struct _BobLauncherFastLabel {
     int cached_width;
     int cached_height;
     int cached_baseline;
-    gboolean needs_measure;
+    bool needs_measure;
 };
 
 struct _BobLauncherFastLabelClass {
@@ -29,8 +29,7 @@ bob_launcher_fast_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
     /* Adjust y position to align layout baseline with widget's allocated baseline */
     int allocated_baseline = gtk_widget_get_baseline(widget);
     if (allocated_baseline != -1) {
-        int layout_baseline = pango_layout_get_baseline(self->layout) / PANGO_SCALE;
-        float y = allocated_baseline - layout_baseline;
+        float y = allocated_baseline - self->cached_baseline;
         gtk_snapshot_translate(snapshot, &GRAPHENE_POINT_INIT(0, y));
     }
 
@@ -48,14 +47,13 @@ bob_launcher_fast_label_measure(GtkWidget *widget,
 {
     BobLauncherFastLabel *self = BOB_LAUNCHER_FAST_LABEL(widget);
 
-    if (self->needs_measure && self->layout != NULL) {
+    if (self->needs_measure) {
         int width, height;
         pango_layout_get_size(self->layout, &width, &height);
         self->cached_width = PANGO_PIXELS_CEIL(width);
         self->cached_height = PANGO_PIXELS_CEIL(height);
-        int baseline = pango_layout_get_baseline(self->layout);
-        self->cached_baseline = PANGO_PIXELS_CEIL(baseline);
-        self->needs_measure = FALSE;
+        self->cached_baseline = pango_layout_get_baseline(self->layout) / PANGO_SCALE;
+        self->needs_measure = false;
     }
 
     if (orientation == GTK_ORIENTATION_HORIZONTAL) {
@@ -85,13 +83,11 @@ static void
 bob_launcher_fast_label_css_changed(GtkWidget *widget, GtkCssStyleChange *change)
 {
     BobLauncherFastLabel *self = BOB_LAUNCHER_FAST_LABEL(widget);
+    self->needs_measure = true;
+    pango_layout_context_changed(self->layout);
+    gtk_widget_queue_resize(GTK_WIDGET(self));
 
     GTK_WIDGET_CLASS(bob_launcher_fast_label_parent_class)->css_changed(widget, change);
-
-    if (self->layout != NULL) {
-        pango_layout_context_changed(self->layout);
-        self->needs_measure = TRUE;
-    }
 }
 
 static void
@@ -118,9 +114,13 @@ bob_launcher_fast_label_instance_init(BobLauncherFastLabel *self, gpointer klass
     self->cached_width = 0;
     self->cached_height = 0;
     self->cached_baseline = 0;
-    self->needs_measure = FALSE;
+    self->needs_measure = false;
 
     gtk_widget_set_overflow(GTK_WIDGET(self), GTK_OVERFLOW_VISIBLE);
+
+    PangoContext *pango_ctx = gtk_widget_get_pango_context(GTK_WIDGET(self));
+    self->layout = pango_layout_new(pango_ctx);
+    pango_layout_set_single_paragraph_mode(self->layout, TRUE);
 }
 
 static GType
@@ -161,16 +161,27 @@ bob_launcher_fast_label_set_text(BobLauncherFastLabel *self,
                                   const char *text,
                                   PangoAttrList *attrs)
 {
-    if (self->layout == NULL) {
-        PangoContext *pango_ctx = gtk_widget_get_pango_context(GTK_WIDGET(self));
-        self->layout = pango_layout_new(pango_ctx);
-        pango_layout_set_single_paragraph_mode(self->layout, TRUE);
-    }
+    PangoAttrList *old_attrs = pango_layout_get_attributes(self->layout);
+    bool attrs_changed = !pango_attr_list_equal(old_attrs, attrs);
 
-    pango_layout_set_text(self->layout, text, -1);
-    if (attrs != NULL)
+    if (attrs_changed)
         pango_layout_set_attributes(self->layout, attrs);
 
-    self->needs_measure = TRUE;
+    const char *old_text = pango_layout_get_text(self->layout);
+    self->needs_measure = self->needs_measure || strcmp(text, old_text) != 0;
+
+    if (self->needs_measure) {
+        pango_layout_set_text(self->layout, text, -1);
+        gtk_widget_queue_resize(GTK_WIDGET(self));
+    } else if (attrs_changed) {
+        gtk_widget_queue_draw(GTK_WIDGET(self));
+    }
+}
+
+void
+bob_launcher_fast_label_invalidate(BobLauncherFastLabel *self)
+{
+    self->needs_measure = true;
+    pango_layout_context_changed(self->layout);
     gtk_widget_queue_resize(GTK_WIDGET(self));
 }

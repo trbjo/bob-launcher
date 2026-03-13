@@ -18,6 +18,7 @@ struct _BobLauncherWidthResizeHandleClass {
 static gpointer bob_launcher_width_resize_handle_parent_class = NULL;
 static GtkCssProvider *css_provider = NULL;
 static GSettings *ui_settings = NULL;
+static double leftover_x = 0.0;
 
 static void
 get_setting_range(GSettings *settings, const char *key, int *min, int *max)
@@ -53,14 +54,31 @@ css_set_width(int width)
 }
 
 static void
-on_drag_update(GtkGestureDrag *gesture, double x, double y, gpointer user_data)
+on_drag_begin(GtkGestureDrag *gesture, double x, double y, gpointer user_data)
 {
+    (void)gesture;
+    (void)x;
+    (void)y;
+    (void)user_data;
+    leftover_x = 0.0;
+}
+
+static void
+on_drag_update(GtkGestureDrag *gesture, double x, double y, gpointer user_data) {
     (void)gesture;
     (void)y;
     (void)user_data;
 
+    int whole = (int)(x + leftover_x);
+    if (!whole) {
+        leftover_x += x;
+        return;
+    }
+
+    leftover_x = (x + leftover_x) - whole;
+
     int current = g_settings_get_int(ui_settings, "width");
-    int new_value = current + (int)x;
+    int new_value = current + whole;
 
     int min, max;
     get_setting_range(ui_settings, "width", &min, &max);
@@ -137,6 +155,7 @@ bob_launcher_width_resize_handle_instance_init(BobLauncherWidthResizeHandle *sel
     self->drag_gesture = GTK_GESTURE_DRAG(gtk_gesture_drag_new());
     gtk_widget_add_controller(GTK_WIDGET(self), GTK_EVENT_CONTROLLER(self->drag_gesture));
 
+    g_signal_connect(self->drag_gesture, "drag-begin", G_CALLBACK(on_drag_begin), self);
     g_signal_connect(self->drag_gesture, "drag-update", G_CALLBACK(on_drag_update), self);
     g_signal_connect(self, "state-flags-changed", G_CALLBACK(on_state_flags_changed), NULL);
 

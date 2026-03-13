@@ -23,9 +23,8 @@ typedef struct _BobLauncherLauncherWindow BobLauncherLauncherWindow;
 typedef struct _BobLauncherBobLaunchContext BobLauncherBobLaunchContext;
 
 extern int thread_pool_num_cores(void);
-extern void thread_pool_init(int n);
+extern void thread_pool_init(uint16_t n);
 extern void hashset_init(int n);
-extern void thread_pool_pin_caller(void);
 extern void thread_pool_join_all(void);
 extern void plugin_loader_initialize(void);
 extern void plugin_loader_shutdown(void);

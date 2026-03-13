@@ -30,9 +30,8 @@ gboolean bob_launcher_bob_launch_context_launch_files_internal(BobLauncherLaunch
                                                             GList *files,
                                                             gchar **env);
 
-gboolean bob_launcher_bob_launch_context_launch_uris_internal(BobLauncherLaunchContext *self,
-                                                           GList *uris,
-                                                           gchar **env);
+gboolean bob_launcher_bob_launch_context_launch_uris_internal(
+    BobLauncherLaunchContext *self, GList *uris, char **env, int env_length);
 
 gboolean bob_launcher_bob_launch_context_launch_uri(BobLauncherLaunchContext *self,
                                                  const gchar *uri);

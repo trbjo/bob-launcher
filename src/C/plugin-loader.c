@@ -8,6 +8,7 @@
 #include <glib.h>
 #include <glib-object.h>
 #include <gio/gio.h>
+#include "constants.h"
 #include "bob-launcher.h"
 
 /* ============================================================================
@@ -386,9 +387,9 @@ static void add_providers(BobLauncherPluginBase *plugin) {
     g_ptr_array_sort(plugin_loader_search_providers, shard_comp);
 
     char *plugin_name = bob_launcher_plugin_base_to_string(plugin);
-    size_t len = strlen(BOB_LAUNCHER_BOB_LAUNCHER_APP_ID) + strlen(".plugins.") + strlen(plugin_name) + 1;
+    size_t len = strlen(BOB_LAUNCHER_APP_ID) + strlen(".plugins.") + strlen(plugin_name) + 1;
     char *settings_id = malloc(len);
-    snprintf(settings_id, len, "%s.plugins.%s", BOB_LAUNCHER_BOB_LAUNCHER_APP_ID, plugin_name);
+    snprintf(settings_id, len, "%s.plugins.%s", BOB_LAUNCHER_APP_ID, plugin_name);
     free(plugin_name);
 
     GSettings *plg_settings = g_settings_new(settings_id);
@@ -512,12 +513,12 @@ void plugin_loader_initialize(void) {
     plugin_dirs = calloc(plugin_dirs_len + 1, sizeof(char *));
 
     char *user_lib = str_replace(user_data_dir, "share", "lib");
-    plugin_dirs[0] = g_build_filename(user_lib, BOB_LAUNCHER_BOB_LAUNCHER_APP_ID, NULL);
+    plugin_dirs[0] = g_build_filename(user_lib, BOB_LAUNCHER_APP_ID, NULL);
     free(user_lib);
 
     for (int i = 0; i < sys_dirs_count; i++) {
         char *lib_path = str_replace(system_data_dirs[i], "share", "lib");
-        plugin_dirs[i + 1] = g_build_filename(lib_path, BOB_LAUNCHER_BOB_LAUNCHER_APP_ID, NULL);
+        plugin_dirs[i + 1] = g_build_filename(lib_path, BOB_LAUNCHER_APP_ID, NULL);
         free(lib_path);
     }
 
