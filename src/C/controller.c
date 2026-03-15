@@ -591,13 +591,17 @@ bool controller_handle_command(int command) {
     }
 }
 
+void controller_handle_compose(const char *preedit) {
+    // TODO
+}
+
 void controller_handle_key_release(unsigned int keyval, GdkModifierType state) {
     controller_handle_command(keybindings_command_from_key_release(keyval, state));
 }
 
 void controller_handle_key_press(unsigned int keyval, GdkModifierType state) {
     if (!controller_handle_command(keybindings_command_from_key_press(keyval, state))) {
-        char ch = gdk_keyval_to_unicode(keyval);
+        uint32_t ch = gdk_keyval_to_unicode(keyval);
         if (g_unichar_isprint(ch)) {
             char str[8] = {0}; // UTF-8 can be up to 6 bytes + null terminator
             int len = g_unichar_to_utf8(ch, str);

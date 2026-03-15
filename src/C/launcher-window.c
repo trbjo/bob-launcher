@@ -638,7 +638,8 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
                controller_handle_key_press,
                controller_handle_key_release,
                controller_handle_focus_enter,
-               controller_handle_focus_leave);
+               controller_handle_focus_leave,
+               controller_handle_compose);
 
     g_unix_fd_add(keyboard_get_repeat_fd(), G_IO_IN,
                   (GUnixFDSourceFunc)on_repeat_ready, NULL);

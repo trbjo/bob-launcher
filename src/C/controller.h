@@ -12,6 +12,7 @@ void controller_start_search(const char* search_query);
 bool controller_select_plugin(const char* plugin, const char* query);void controller_goto_match(int relative_index);
 void controller_handle_key_release(unsigned int keyval, unsigned int state);
 void controller_handle_key_press(unsigned int keyval, unsigned int state);
+void controller_handle_compose(const char *preedit);
 void controller_handle_focus_enter();
 void controller_handle_focus_leave();
 void controller_reset();

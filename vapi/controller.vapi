@@ -10,6 +10,7 @@ namespace Controller {
     internal static bool select_plugin(string plugin, string? query = null);
     internal static void handle_key_release(uint keyval, Gdk.ModifierType state);
     internal static void handle_key_press(uint keyval, Gdk.ModifierType state);
+    internal static void handle_compose(string? preedit);
     internal static void handle_focus_enter();
     internal static void handle_focus_leave();
     internal static void reset();
