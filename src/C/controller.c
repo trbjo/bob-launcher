@@ -42,6 +42,7 @@ extern int bob_launcher_result_box_box_size;
 extern int bob_launcher_result_box_visible_size;
 
 extern void bob_launcher_query_container_adjust_label_for_query();
+extern void bob_launcher_query_container_set_preedit(const char *preedit);
 extern void bob_launcher_scroll_controller_reset (void);
 
 extern void bob_launcher_app_open_settings();
@@ -592,7 +593,7 @@ bool controller_handle_command(int command) {
 }
 
 void controller_handle_compose(const char *preedit) {
-    // TODO
+    bob_launcher_query_container_set_preedit(preedit);
 }
 
 void controller_handle_key_release(unsigned int keyval, GdkModifierType state) {

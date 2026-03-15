@@ -10,5 +10,6 @@ typedef struct _BobLauncherQueryContainerClass BobLauncherQueryContainerClass;
 GType bob_launcher_query_container_get_type(void) G_GNUC_CONST;
 BobLauncherQueryContainer *bob_launcher_query_container_new(void);
 void bob_launcher_query_container_adjust_label_for_query();
+void bob_launcher_query_container_set_preedit(const char *preedit);
 
 G_END_DECLS
