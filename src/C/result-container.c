@@ -68,10 +68,12 @@ static inline bool grab_sheet_from_queue(ResultContainer* container) {
 }
 
 static inline bool grab_fresh_sheet(ResultContainer* container) {
-    int global_index = atomic_fetch_add(container->global_index_counter, 1);
-    if (global_index >= MAX_SHEETS) {
-        return false;
-    }
+    int global_index = atomic_load(container->global_index_counter);
+    do {
+        if (global_index >= MAX_SHEETS)
+            return false;
+    } while (!atomic_compare_exchange_weak(container->global_index_counter,
+                                            &global_index, global_index + 1));
 
     ResultSheet* sheet = malloc(sizeof(ResultSheet));
     if (!sheet) {

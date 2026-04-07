@@ -1,6 +1,6 @@
 @define-color shadow alpha(black, 0.6);
 @define-color inactive_shadow alpha(black, 0.3);
-@define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.9);
+@define-color unmatched_color mix(@theme_base_color, @theme_text_color, 0.95);
 @define-color attention_color mix(#ff3b30, @separator_color, 0.7);
 
 

@@ -16,6 +16,9 @@ simple_keyboard = subproject('simple-keyboard')
 simple_keyboard_dep = simple_keyboard.get_variable('simple_keyboard_dep')
 simple_keyboard_vapi_dir = simple_keyboard.get_variable('simple_keyboard_dep').get_variable('vapi_dir')
 
+simple_blur = subproject('simple-blur')
+simple_blur_dep = simple_blur.get_variable('simple_blur_dep')
+
 thread_manager = subproject('thread-manager')
 thread_manager_dep = thread_manager.get_variable('thread_manager_dep')
 thread_manager_vapi_dir = thread_manager.get_variable('thread_manager_dep').get_variable('vapi_dir')
@@ -131,6 +134,7 @@ base_deps = [
     dependency('wayland-client'),
     meson.get_compiler('vala').find_library('posix'),
     simple_keyboard_dep,
+    simple_blur_dep,
     thread_manager_dep,
     file_monitor_dep,
     meson.get_compiler('c').find_library('m'),

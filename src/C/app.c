@@ -1,4 +1,5 @@
 #include <gtk/gtk.h>
+#include <gdk/wayland/gdkwayland.h>
 #include <glib-unix.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -34,6 +35,9 @@ extern void keybindings_initialize(void);
 extern void input_region_initialize(void);
 extern void css_initialize(void);
 extern void keyboard_teardown(void);
+extern void blur_teardown(void);
+extern bool blur_init(struct wl_display *display);
+
 extern void signal_ready_if_needed(uint8_t *socket_array, size_t len);
 extern bool controller_select_plugin(const char *plugin, const char *query);
 
@@ -267,6 +271,9 @@ static void initialize(int fd) {
     gtk_init();
     g_object_set(gtk_settings_get_default(), "gtk-enable-accels", FALSE, NULL);
 
+    struct wl_display *wl_display = gdk_wayland_display_get_wl_display(gdk_display_get_default());
+    bool has_blur = blur_init(wl_display);
+
     plugin_loader_initialize();
     state_initialize();
     icon_cache_service_initialize();
@@ -292,6 +299,7 @@ static void initialize(int fd) {
 
 static void shutdown_app(void) {
     keyboard_teardown();
+    blur_teardown();
     plugin_loader_shutdown();
 
     if (bob_launcher_app_main_win) {

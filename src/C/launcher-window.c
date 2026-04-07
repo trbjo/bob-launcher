@@ -9,6 +9,7 @@
 #include <glib-unix.h>
 #include <wayland-client.h>
 #include <simple-keyboard.h>
+#include <simple-blur.h>
 #include <cairo.h>
 #include <math.h>
 
@@ -122,26 +123,6 @@ input_region_create_from_window(GtkWindow *win, GdkSurface *surface)
     return region;
 }
 
-static void
-input_region_set_input_regions(GtkWindow *win, gint width, gint height)
-{
-    GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(win));
-    if (surface == NULL) {
-        g_critical("could not get surface");
-        return;
-    }
-
-    gint key = input_region_pack_ints(width, height);
-    cairo_region_t *region = g_hash_table_lookup(input_region_table, GINT_TO_POINTER(key));
-
-    if (region == NULL) {
-        region = input_region_create_from_window(win, surface);
-        g_hash_table_insert(input_region_table, GINT_TO_POINTER(key), region);
-    }
-
-    gdk_surface_set_input_region(surface, region);
-}
-
 static bool layershell_wants_layer_shell(BobLauncherAppSettingsLayerShell *ls) {
     if (!bob_launcher_app_settings_layer_shell_get_enabled(ls))
         return FALSE;
@@ -223,6 +204,7 @@ struct _BobLauncherLauncherWindowPrivate {
     graphene_rect_t inner;
     GdkWaylandToplevel *surf;
     GSettings *settings;
+    blur_surface *blur;
 
     gboolean client_side_shadow;
     gboolean inhibit_system_shortcuts;
@@ -384,8 +366,20 @@ bob_launcher_launcher_window_size_allocate(GtkWidget *widget, gint width, gint h
         launcher_window_last_width = width;
         launcher_window_last_height = height;
         layershell_adjust_margins(GTK_WINDOW(self), width, height);
-        if (priv->client_side_shadow)
-            input_region_set_input_regions(GTK_WINDOW(self), width, height);
+
+        GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(self));
+        gint key = input_region_pack_ints(width, height);
+        cairo_region_t *region = g_hash_table_lookup(input_region_table, GINT_TO_POINTER(key));
+        if (region == NULL) {
+            region = input_region_create_from_window(GTK_WINDOW(self), surface);
+            g_hash_table_insert(input_region_table, GINT_TO_POINTER(key), region);
+        }
+
+        blur_set_cairo_region(self->priv->blur, region);
+
+        if (priv->client_side_shadow) {
+            gdk_surface_set_input_region(surface, region);
+        }
     }
 }
 
@@ -473,6 +467,7 @@ static void
 bob_launcher_launcher_window_dispose(GObject *obj)
 {
     BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(obj);
+    blur_surface_destroy(self->priv->blur);
 
     if (bob_launcher_launcher_window_up_down_handle != NULL) {
         gtk_widget_unparent(GTK_WIDGET(bob_launcher_launcher_window_up_down_handle));
@@ -640,6 +635,8 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
                controller_handle_focus_enter,
                controller_handle_focus_leave,
                controller_handle_compose);
+
+    self->priv->blur = blur_surface_create(wayland_surface);
 
     g_unix_fd_add(keyboard_get_repeat_fd(), G_IO_IN,
                   (GUnixFDSourceFunc)on_repeat_ready, NULL);
