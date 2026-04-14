@@ -265,6 +265,13 @@ on_monitor_changed_idle(gpointer user_data)
 static void
 on_monitor_changed(GdkSurface *surface, GdkMonitor *monitor, gpointer user_data)
 {
+    BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(user_data);
+
+    if (monitor == self->priv->current_monitor)
+        return;
+
+    self->priv->current_monitor = monitor;
+
     g_idle_add_full(G_PRIORITY_LOW, on_monitor_changed_idle, user_data, NULL);
 }
 
@@ -479,6 +486,7 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
     priv->surf = NULL;
     priv->client_side_shadow = FALSE;
     priv->inhibit_system_shortcuts = FALSE;
+    priv->current_monitor = NULL;
     priv->surface_data = gsk_surface_data_new(BOB_LAUNCHER_TYPE_LAUNCHER_WINDOW);
 
     priv->settings = g_settings_new(BOB_LAUNCHER_APP_ID ".ui");
