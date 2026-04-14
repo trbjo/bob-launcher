@@ -25,6 +25,10 @@ typedef struct _GCond           GCond;
 
 #include <glib.h>
 
+#ifndef g_slice_alloc_size
+#define g_slice_alloc_size(type) (sizeof (type) > 0 ? sizeof (type) : 1)
+#endif
+
 /* Override g_once_init with simple versions */
 #undef g_cond_clear
 #define g_cond_clear(cond) ((void)0)
