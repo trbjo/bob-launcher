@@ -3,13 +3,11 @@
 #include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <stdio.h>
+#include "launcher-window.h"
 
 #define BOB_LAUNCHER_APP_ID "io.github.trbjo.bob.launcher"
 
-typedef struct _BobLauncherLauncherWindow BobLauncherLauncherWindow;
-
 extern BobLauncherLauncherWindow *bob_launcher_app_main_win;
-extern void input_region_reset(void);
 
 static const char *color_variables =
     "\n"
@@ -170,6 +168,6 @@ css_on_css_file_changed(GFileMonitor *monitor, GFile *file, GFile *other_file,
     if (event_type == G_FILE_MONITOR_EVENT_CHANGED || event_type == G_FILE_MONITOR_EVENT_CREATED) {
         css_update_css_sheet();
         gtk_widget_queue_resize(GTK_WIDGET(bob_launcher_app_main_win));
-        input_region_reset();
+        bob_launcher_launcher_window_reset_surface_data(BOB_LAUNCHER_LAUNCHER_WINDOW(bob_launcher_app_main_win));
     }
 }

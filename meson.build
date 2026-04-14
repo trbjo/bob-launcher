@@ -75,6 +75,8 @@ c_sources = files(
     'src/C/resize-handle.h',
     'src/C/width-resize-handle.c',
     'src/C/width-resize-handle.h',
+    'src/C/gsk-utils.h',
+    'src/C/gsk-utils.c',
     'src/C/launcher-window.c',
     'src/C/launcher-window.h',
     'src/C/plugin-loader.c',

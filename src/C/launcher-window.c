@@ -12,6 +12,7 @@
 #include <simple-blur.h>
 #include <cairo.h>
 #include <math.h>
+#include "gsk-utils.h"
 
 /* ============================================================================
  * External type declarations
@@ -67,61 +68,8 @@ on_repeat_ready(gint fd, GIOCondition condition, gpointer user_data)
 }
 
 /* ============================================================================
- * InputRegion - Static module
+ * LayerShell helpers
  * ============================================================================ */
-
-static GHashTable *input_region_table = NULL;
-
-static inline gint
-input_region_pack_ints(gint a, gint b)
-{
-    return (a << 16) | (b & 0xFFFF);
-}
-
-void
-input_region_initialize(void)
-{
-    input_region_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)cairo_region_destroy);
-}
-
-void
-input_region_reset(void)
-{
-    if (input_region_table != NULL)
-        g_hash_table_remove_all(input_region_table);
-}
-
-static cairo_region_t *
-input_region_create_from_window(GtkWindow *win, GdkSurface *surface)
-{
-    graphene_rect_t inner;
-    GtkWidget *child = gtk_window_get_child(win);
-
-    if (!gtk_widget_compute_bounds(GTK_WIDGET(win), child, &inner))
-        g_critical("could not calculate bounds");
-
-    GtkSnapshot *snapshot = gtk_snapshot_new();
-    GTK_WIDGET_GET_CLASS(win)->snapshot(GTK_WIDGET(win), snapshot);
-    GskRenderNode *node = gtk_snapshot_to_node(snapshot);
-    g_object_unref(snapshot);
-
-    if (node == NULL)
-        g_critical("node is null");
-
-    gint width = (gint)(inner.size.width + inner.origin.x);
-    gint height = (gint)(inner.size.height + inner.origin.y);
-
-    cairo_surface_t *cairo_surf = cairo_image_surface_create(CAIRO_FORMAT_A8, width, height);
-    cairo_t *cr = cairo_create(cairo_surf);
-    gsk_render_node_draw(node, cr);
-    cairo_destroy(cr);
-    gsk_render_node_unref(node);
-
-    cairo_region_t *region = gdk_cairo_region_create_from_surface(cairo_surf);
-    cairo_surface_destroy(cairo_surf);
-
-    return region;
-}
 
 static bool layershell_wants_layer_shell(BobLauncherAppSettingsLayerShell *ls) {
     if (!bob_launcher_app_settings_layer_shell_get_enabled(ls))
@@ -205,9 +153,11 @@ struct _BobLauncherLauncherWindowPrivate {
     GdkWaylandToplevel *surf;
     GSettings *settings;
     blur_surface *blur;
+    GskSurfaceData *surface_data;
 
     gboolean client_side_shadow;
     gboolean inhibit_system_shortcuts;
+    GdkMonitor *current_monitor;
 };
 
 /* ============================================================================
@@ -217,8 +167,6 @@ struct _BobLauncherLauncherWindowPrivate {
 static gpointer bob_launcher_launcher_window_parent_class = NULL;
 static gint BobLauncherLauncherWindow_private_offset;
 
-static gint launcher_window_last_width = 0;
-static gint launcher_window_last_height = 0;
 static BobLauncherAppSettings *launcher_window_appsettings = NULL;
 
 /* Public static handles */
@@ -316,7 +264,9 @@ static gboolean
 on_monitor_changed_idle(gpointer user_data)
 {
     BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(user_data);
-    layershell_adjust_margins(GTK_WINDOW(self), launcher_window_last_width, launcher_window_last_height);
+    layershell_adjust_margins(GTK_WINDOW(self),
+        gtk_widget_get_width(GTK_WIDGET(self)),
+        gtk_widget_get_height(GTK_WIDGET(self)));
     return G_SOURCE_REMOVE;
 }
 
@@ -327,14 +277,13 @@ on_monitor_changed(GdkSurface *surface, GdkMonitor *monitor, gpointer user_data)
 }
 
 /* ============================================================================
- * GtkWidget/GtkWindow virtual functions
+ * GtkWidget virtual functions
  * ============================================================================ */
 
 static void
 bob_launcher_launcher_window_size_allocate(GtkWidget *widget, gint width, gint height, gint baseline)
 {
     BobLauncherLauncherWindow *self = (BobLauncherLauncherWindow*)widget;
-
     BobLauncherLauncherWindowPrivate *priv = self->priv;
 
     GTK_WIDGET_CLASS(bob_launcher_launcher_window_parent_class)->size_allocate(widget, width, height, baseline);
@@ -361,25 +310,31 @@ bob_launcher_launcher_window_size_allocate(GtkWidget *widget, gint width, gint h
     gtk_widget_allocate(GTK_WIDGET(bob_launcher_launcher_window_width_handle),
                         width_handle_width, (gint)priv->inner.size.height, baseline,
                         gsk_transform_translate(NULL, &pt));
+}
 
-    if (launcher_window_last_width != width || launcher_window_last_height != height) {
-        launcher_window_last_width = width;
-        launcher_window_last_height = height;
-        layershell_adjust_margins(GTK_WINDOW(self), width, height);
+static void
+bob_launcher_launcher_window_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
+{
+    BobLauncherLauncherWindow *self = (BobLauncherLauncherWindow *)widget;
 
-        GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(self));
-        gint key = input_region_pack_ints(width, height);
-        cairo_region_t *region = g_hash_table_lookup(input_region_table, GINT_TO_POINTER(key));
-        if (region == NULL) {
-            region = input_region_create_from_window(GTK_WINDOW(self), surface);
-            g_hash_table_insert(input_region_table, GINT_TO_POINTER(key), region);
-        }
+    GskRenderNode *root = NULL;
+    cairo_region_t *region = NULL;
 
+    if (gsk_surface_data_snapshot(self->priv->surface_data, widget, &root, &region)) {
         blur_set_cairo_region(self->priv->blur, region);
 
-        if (priv->client_side_shadow) {
+        if (self->priv->client_side_shadow) {
+            GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(self));
             gdk_surface_set_input_region(surface, region);
         }
+
+        layershell_adjust_margins(GTK_WINDOW(self),
+            gtk_widget_get_width(widget), gtk_widget_get_height(widget));
+    }
+
+    if (root != NULL) {
+        gtk_snapshot_append_node(snapshot, root);
+        gsk_render_node_unref(root);
     }
 }
 
@@ -411,10 +366,12 @@ bob_launcher_launcher_window_show(GtkWidget *widget)
         if (priv->surf != NULL)
             gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_APP_ID);
     } else {
-        if (priv->inhibit_system_shortcuts && priv->surf != NULL)
+        if (priv->inhibit_system_shortcuts && priv->surf != NULL) {
             gdk_toplevel_inhibit_system_shortcuts(GDK_TOPLEVEL(priv->surf), NULL);
-        if (priv->surf != NULL)
+        }
+        if (priv->surf != NULL) {
             gdk_wayland_toplevel_set_application_id(priv->surf, BOB_LAUNCHER_APP_ID);
+        }
         GTK_WIDGET_CLASS(bob_launcher_launcher_window_parent_class)->show(widget);
     }
 }
@@ -468,6 +425,7 @@ bob_launcher_launcher_window_dispose(GObject *obj)
 {
     BobLauncherLauncherWindow *self = BOB_LAUNCHER_LAUNCHER_WINDOW(obj);
     blur_surface_destroy(self->priv->blur);
+    gsk_surface_data_destroy(self->priv->surface_data);
 
     if (bob_launcher_launcher_window_up_down_handle != NULL) {
         gtk_widget_unparent(GTK_WIDGET(bob_launcher_launcher_window_up_down_handle));
@@ -496,6 +454,7 @@ bob_launcher_launcher_window_class_init(BobLauncherLauncherWindowClass *klass, g
 
     GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
     widget_class->size_allocate = bob_launcher_launcher_window_size_allocate;
+    widget_class->snapshot = bob_launcher_launcher_window_snapshot;
     widget_class->hide = bob_launcher_launcher_window_hide;
     widget_class->show = bob_launcher_launcher_window_show;
 
@@ -519,7 +478,6 @@ static void on_color_scheme_changed(GSettings *settings, const char *key, gpoint
     g_free(scheme);
 }
 
-
 static void
 bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpointer klass)
 {
@@ -529,6 +487,7 @@ bob_launcher_launcher_window_instance_init(BobLauncherLauncherWindow *self, gpoi
     priv->surf = NULL;
     priv->client_side_shadow = FALSE;
     priv->inhibit_system_shortcuts = FALSE;
+    priv->surface_data = gsk_surface_data_new(BOB_LAUNCHER_TYPE_LAUNCHER_WINDOW);
 
     priv->settings = g_settings_new(BOB_LAUNCHER_APP_ID ".ui");
 
@@ -642,3 +601,10 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
                   (GUnixFDSourceFunc)on_repeat_ready, NULL);
 
 }
+
+void
+bob_launcher_launcher_window_reset_surface_data(BobLauncherLauncherWindow *self)
+{
+    gsk_surface_data_reset(self->priv->surface_data);
+}
+

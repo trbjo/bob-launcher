@@ -32,10 +32,7 @@ extern BobLauncherWidthResizeHandle *bob_launcher_launcher_window_width_handle;
 GType bob_launcher_launcher_window_get_type(void) G_GNUC_CONST;
 BobLauncherLauncherWindow *bob_launcher_launcher_window_new(void);
 void bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self);
-
-/* InputRegion functions */
-void input_region_initialize(void);
-void input_region_reset(void);
+void bob_launcher_launcher_window_reset_surface_data(BobLauncherLauncherWindow *self);
 
 G_END_DECLS
 
