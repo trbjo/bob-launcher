@@ -1,20 +1,36 @@
+#include "icon-cache-service.h"
+#include "icon-resolver.h"
+#include "icon-renderer.h"
+#include "file-monitor.h"
+
 #include <stdatomic.h>
 #include <immintrin.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <glib.h>
-#include <gtk/gtk.h>
-#include "file-monitor.h"
+#include <gio/gio.h>
 
 #define FALLBACK "image-missing"
 #define BOB_LAUNCHER_OBJECT_PATH "/io/github/trbjo/bob/launcher"
 #define DEBOUNCE_TIMEOUT_MS 100
 
+/* ================================================================
+ * State
+ * ================================================================ */
+
 static atomic_int lock_token;
 static GHashTable *mime_type_map;
 static GHashTable *icon_cache;
-static GtkIconTheme *theme;
+static IconResolver *resolver;
+static GSettings *interface_settings;
 static file_monitor *monitor;
 static guint debounce_timer_id = 0;
+static char **search_paths;
+static int n_search_paths;
+
+static void on_file_change(const char *path, int event_type, void *user_data);
 
 static inline void spin_lock(atomic_int *lock) {
     while (atomic_exchange(lock, 1)) {
@@ -26,51 +42,82 @@ static inline void spin_unlock(atomic_int *lock) {
     atomic_store(lock, 0);
 }
 
-static void clear_cache() {
-    spin_lock(&lock_token);
-    g_hash_table_remove_all(mime_type_map);
-    g_hash_table_remove_all(icon_cache);
-    spin_unlock(&lock_token);
+static unsigned char* read_file_bytes(const char *path, size_t *out_len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    rewind(f);
+
+    unsigned char *buf = malloc(len);
+    if (fread(buf, 1, len, f) != (size_t)len) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+
+    fclose(f);
+    *out_len = len;
+    return buf;
 }
 
-static gboolean debounced_cache_clear(gpointer user_data) {
-    clear_cache();
-    debounce_timer_id = 0;
-    return G_SOURCE_REMOVE;
+static unsigned char* read_resource_bytes(const char *path, size_t *out_len) {
+    GBytes *gbytes = g_resources_lookup_data(path, 0, NULL);
+    if (!gbytes) return NULL;
+
+    size_t len;
+    const void *data = g_bytes_get_data(gbytes, &len);
+    unsigned char *buf = malloc(len);
+    memcpy(buf, data, len);
+    g_bytes_unref(gbytes);
+
+    *out_len = len;
+    return buf;
 }
 
-static void on_file_change(const char* path, int event_type, void* user_data) {
-    if (debounce_timer_id != 0) {
-        g_source_remove(debounce_timer_id);
-    }
-
-    debounce_timer_id = g_timeout_add(DEBOUNCE_TIMEOUT_MS, debounced_cache_clear, NULL);
+static unsigned char* read_icon_bytes(IconLocation *loc, size_t *out_len) {
+    if (loc->is_resource)
+        return read_resource_bytes(loc->path, out_len);
+    else
+        return read_file_bytes(loc->path, out_len);
 }
 
-static void setup_directory_monitoring() {
-    if (monitor != NULL) {
-        file_monitor_destroy(monitor);
-        monitor = NULL;
-    }
+/* ================================================================
+ * Rendering from location
+ * ================================================================ */
 
-    monitor = file_monitor_new(on_file_change, NULL, NULL);
-    if (monitor == NULL) {
-        return;
-    }
+static GdkTexture* render_icon(IconLocation *loc, int pixel_size) {
+    size_t len;
+    unsigned char *data = read_icon_bytes(loc, &len);
+    if (!data) return NULL;
 
-    char **search_path = NULL;
-    int n_elements = 0;
+    GdkTexture *tex;
+    if (loc->format == ICON_FORMAT_SVG)
+        tex = icon_render_svg(data, len, pixel_size);
+    else
+        tex = icon_render_png(data, len, pixel_size);
 
-    g_object_get(theme, "search-path", &search_path, NULL);
+    free(data);
+    return tex;
+}
 
-    if (search_path == NULL) return;
-    for (n_elements = 0; search_path[n_elements] != NULL; n_elements++) { }
+/* ================================================================
+ * Search paths
+ * ================================================================ */
 
-    if (n_elements > 0) {
-        file_monitor_add_paths_recursive(monitor, (const char**)search_path, n_elements);
-    }
+static void build_search_paths(void) {
+    GPtrArray *paths = g_ptr_array_new();
 
-    g_strfreev(search_path);
+    g_ptr_array_add(paths, g_build_filename(g_get_user_data_dir(), "icons", NULL));
+    g_ptr_array_add(paths, g_build_filename(g_get_home_dir(), ".icons", NULL));
+
+    const char *const *data_dirs = g_get_system_data_dirs();
+    for (int i = 0; data_dirs[i]; i++)
+        g_ptr_array_add(paths, g_build_filename(data_dirs[i], "icons", NULL));
+
+    n_search_paths = paths->len;
+    search_paths = (char **)g_ptr_array_free(paths, FALSE);
 }
 
 static uint compute_composite_hash(const char *str, int size, int scale_factor) {
@@ -92,49 +139,117 @@ static uint compute_composite_hash(const char *str, int size, int scale_factor) 
     return str_part | scale_part | size_part;
 }
 
-static void on_theme_changed(GtkIconTheme *theme, gpointer user_data) {
-    clear_cache();
-    setup_directory_monitoring();
+static void rebuild_resolver(void) {
+    char *theme_name = g_settings_get_string(interface_settings, "icon-theme");
+    const char *res_paths[] = { BOB_LAUNCHER_OBJECT_PATH };
+
+    IconResolver *new_resolver = icon_resolver_new(
+        theme_name,
+        (const char **)search_paths, n_search_paths,
+        res_paths, 1);
+
+    spin_lock(&lock_token);
+    IconResolver *old = resolver;
+    resolver = new_resolver;
+    g_hash_table_remove_all(icon_cache);
+    g_hash_table_remove_all(mime_type_map);
+    spin_unlock(&lock_token);
+
+    icon_resolver_destroy(old);
+    g_free(theme_name);
 }
 
-void icon_cache_service_initialize() {
+/* ================================================================
+ * File monitoring
+ * ================================================================ */
+
+static void setup_directory_monitoring(void) {
+    if (monitor) {
+        file_monitor_destroy(monitor);
+        monitor = NULL;
+    }
+
+    monitor = file_monitor_new(on_file_change, NULL, NULL);
+    if (!monitor) return;
+
+    if (n_search_paths > 0)
+        file_monitor_add_paths_recursive(monitor, (const char **)search_paths, n_search_paths);
+}
+
+static gboolean debounced_rebuild(gpointer user_data) {
+    rebuild_resolver();
+    setup_directory_monitoring();
+    debounce_timer_id = 0;
+    return G_SOURCE_REMOVE;
+}
+
+static void on_file_change(const char *path, int event_type, void *user_data) {
+    if (debounce_timer_id != 0)
+        g_source_remove(debounce_timer_id);
+    debounce_timer_id = g_timeout_add(DEBOUNCE_TIMEOUT_MS, debounced_rebuild, NULL);
+}
+
+static void on_icon_theme_changed(GSettings *settings, const char *key, gpointer user_data) {
+    rebuild_resolver();
+}
+
+/* ================================================================
+ * Public API
+ * ================================================================ */
+
+void icon_cache_service_initialize(void) {
     icon_cache = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
-    mime_type_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    mime_type_map = g_hash_table_new_full(g_str_hash, g_str_equal, free, free);
 
-    theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
-    gtk_icon_theme_add_resource_path(theme, BOB_LAUNCHER_OBJECT_PATH);
+    build_search_paths();
 
-    g_signal_connect(theme, "changed", G_CALLBACK(on_theme_changed), NULL);
+    interface_settings = g_settings_new("org.gnome.desktop.interface");
+    g_signal_connect(interface_settings, "changed::icon-theme",
+                     G_CALLBACK(on_icon_theme_changed), NULL);
 
+    rebuild_resolver();
     setup_directory_monitoring();
 }
 
 GdkPaintable* icon_cache_service_get_paintable_for_icon_name(const char *icon_name, int size, int scale) {
-    spin_lock(&lock_token);
-
     uint key = compute_composite_hash(icon_name, size, scale);
+
+    /* Check cache */
+    spin_lock(&lock_token);
     GdkPaintable *p = g_hash_table_lookup(icon_cache, GUINT_TO_POINTER(key));
-
-    if (p == NULL) {
-        const char *lookup_str;
-        bool has_icon = gtk_icon_theme_has_icon(theme, icon_name);
-        lookup_str = has_icon ? icon_name : FALLBACK;
-
-        GtkIconPaintable *paintable = gtk_icon_theme_lookup_icon(
-            theme,
-            lookup_str,
-            NULL,
-            size,
-            scale,
-            GTK_TEXT_DIR_NONE,
-            0
-        );
-
-        p = GDK_PAINTABLE(paintable);
-        g_hash_table_insert(icon_cache, GUINT_TO_POINTER(key), p);
+    if (p) {
+        spin_unlock(&lock_token);
+        return p;
     }
 
+    /* Resolve under lock (fast, in-memory) */
+    IconLocation loc = {0};
+    bool found = icon_resolver_lookup(resolver, icon_name, size, scale, &loc);
+    if (!found)
+        found = icon_resolver_lookup(resolver, FALLBACK, size, scale, &loc);
     spin_unlock(&lock_token);
+
+    if (!found) return NULL;
+
+    /* Read and render outside lock (slow, concurrent) */
+    GdkTexture *tex = render_icon(&loc, size * scale);
+    icon_location_free(&loc);
+
+    if (!tex) return NULL;
+
+    p = GDK_PAINTABLE(tex);
+
+    /* Insert with race check */
+    spin_lock(&lock_token);
+    GdkPaintable *existing = g_hash_table_lookup(icon_cache, GUINT_TO_POINTER(key));
+    if (existing) {
+        spin_unlock(&lock_token);
+        g_object_unref(tex);
+        return existing;
+    }
+    g_hash_table_insert(icon_cache, GUINT_TO_POINTER(key), p);
+    spin_unlock(&lock_token);
+
     return p;
 }
 
@@ -159,18 +274,21 @@ const char* icon_cache_service_best_icon_name_for_mime_type(const char *content_
 
     const char* const* names = g_themed_icon_get_names(icon);
     const char *result = FALLBACK;
+    IconLocation loc;
 
-    for (int i = 0; names[i] != NULL; i++) {
-        if (gtk_icon_theme_has_icon(theme, names[i])) {
+    for (int i = 0; names[i]; i++) {
+        if (icon_resolver_lookup(resolver, names[i], 48, 1, &loc)) {
             result = names[i];
+            icon_location_free(&loc);
             break;
         }
     }
 
-    char *result_copy = g_strdup(result);
-    g_hash_table_insert(mime_type_map, g_strdup(content_type), result_copy);
+    char *result_copy = strdup(result);
+    g_hash_table_insert(mime_type_map, strdup(content_type), result_copy);
+    spin_unlock(&lock_token);
 
     g_object_unref(icon);
-    spin_unlock(&lock_token);
+
     return result_copy;
 }
