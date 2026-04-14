@@ -54,18 +54,10 @@ extern BobLauncherWidthResizeHandle *bob_launcher_width_resize_handle_new(void);
 extern GdkRectangle *bob_launcher_utils_get_current_display_size(GtkWindow *window);
 
 /* ============================================================================
- * Keyboard repeat handler
+ * External keyboard handle
  * ============================================================================ */
 
-static gboolean
-on_repeat_ready(gint fd, GIOCondition condition, gpointer user_data)
-{
-    (void)fd;
-    (void)condition;
-    (void)user_data;
-    keyboard_handle_repeat();
-    return G_SOURCE_CONTINUE;
-}
+extern SimpleKeyboard *bob_launcher_app_keyboard;
 
 /* ============================================================================
  * LayerShell helpers
@@ -588,18 +580,14 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
 
     struct wl_surface *wayland_surface = gdk_wayland_surface_get_wl_surface(GDK_WAYLAND_SURFACE(mysurf));
 
-    keyboard_initialize(wayland_surface,
-               controller_handle_key_press,
-               controller_handle_key_release,
-               controller_handle_focus_enter,
-               controller_handle_focus_leave,
-               controller_handle_compose);
+    keyboard_add_surface(bob_launcher_app_keyboard, wayland_surface,
+                         controller_handle_key_press,
+                         controller_handle_key_release,
+                         controller_handle_focus_enter,
+                         controller_handle_focus_leave,
+                         controller_handle_compose, NULL);
 
     self->priv->blur = blur_surface_create(wayland_surface);
-
-    g_unix_fd_add(keyboard_get_repeat_fd(), G_IO_IN,
-                  (GUnixFDSourceFunc)on_repeat_ready, NULL);
-
 }
 
 void

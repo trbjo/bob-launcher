@@ -32,11 +32,15 @@ extern void plugin_loader_shutdown(void);
 extern void state_initialize(void);
 extern void icon_cache_service_initialize(void);
 extern void keybindings_initialize(void);
-extern void input_region_initialize(void);
 extern void css_initialize(void);
-extern void keyboard_teardown(void);
 extern void blur_teardown(void);
 extern bool blur_init(struct wl_display *display);
+
+typedef struct SimpleKeyboard SimpleKeyboard;
+extern SimpleKeyboard *keyboard_new(struct wl_display *display);
+extern void keyboard_destroy(SimpleKeyboard *kb);
+extern int keyboard_get_repeat_fd(SimpleKeyboard *kb);
+extern void keyboard_handle_repeat(SimpleKeyboard *kb);
 
 extern void signal_ready_if_needed(uint8_t *socket_array, size_t len);
 extern bool controller_select_plugin(const char *plugin, const char *query);
@@ -47,10 +51,20 @@ extern gboolean bob_launcher_bob_launch_context_launch_uris_internal(
     BobLauncherBobLaunchContext *self, GList *uris, char **env, int env_length);
 
 BobLauncherLauncherWindow *bob_launcher_app_main_win = NULL;
+SimpleKeyboard *bob_launcher_app_keyboard = NULL;
 static BobLauncherBobLaunchContext *launcher = NULL;
 static int listen_fd = -1;
 static uint listen_source_id = 0;
 static volatile int running = 1;
+
+static gboolean
+on_repeat_ready(gint fd, GIOCondition condition, gpointer user_data)
+{
+    (void)fd;
+    (void)condition;
+    keyboard_handle_repeat((SimpleKeyboard *)user_data);
+    return G_SOURCE_CONTINUE;
+}
 
 static void toggle_visibility(void) {
     bool visible = gtk_widget_get_visible(GTK_WIDGET(bob_launcher_app_main_win));
@@ -274,11 +288,14 @@ static void initialize(int fd) {
     struct wl_display *wl_display = gdk_wayland_display_get_wl_display(gdk_display_get_default());
     bool has_blur = blur_init(wl_display);
 
+    bob_launcher_app_keyboard = keyboard_new(wl_display);
+    g_unix_fd_add(keyboard_get_repeat_fd(bob_launcher_app_keyboard), G_IO_IN,
+                  (GUnixFDSourceFunc)on_repeat_ready, bob_launcher_app_keyboard);
+
     plugin_loader_initialize();
     state_initialize();
     icon_cache_service_initialize();
     keybindings_initialize();
-    input_region_initialize();
     css_initialize();
 
     launcher = bob_launcher_bob_launch_context_get_instance();
@@ -298,7 +315,8 @@ static void initialize(int fd) {
 }
 
 static void shutdown_app(void) {
-    keyboard_teardown();
+    keyboard_destroy(bob_launcher_app_keyboard);
+    bob_launcher_app_keyboard = NULL;
     blur_teardown();
     plugin_loader_shutdown();
 

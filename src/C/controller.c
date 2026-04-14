@@ -121,11 +121,13 @@ void controller_on_drag_and_drop_done() {
     }
 }
 
-void controller_handle_focus_enter() {
+void controller_handle_focus_enter(void *user_data) {
+    (void)user_data;
     gtk_widget_unset_state_flags((GtkWidget*)bob_launcher_app_main_win, GTK_STATE_FLAG_BACKDROP);
 }
 
-void controller_handle_focus_leave() {
+void controller_handle_focus_leave(void *user_data) {
+    (void)user_data;
     gtk_widget_remove_css_class((GtkWidget*)bob_launcher_app_main_win, "highlighted");
     gtk_widget_set_state_flags((GtkWidget*)bob_launcher_app_main_win, GTK_STATE_FLAG_BACKDROP, false);
     gtk_widget_set_cursor((GtkWidget*)bob_launcher_app_main_win, NULL);
@@ -592,15 +594,18 @@ bool controller_handle_command(int command) {
     }
 }
 
-void controller_handle_compose(const char *preedit) {
+void controller_handle_compose(const char *preedit, void *user_data) {
+    (void)user_data;
     bob_launcher_query_container_set_preedit(preedit);
 }
 
-void controller_handle_key_release(unsigned int keyval, GdkModifierType state) {
+void controller_handle_key_release(unsigned int keyval, GdkModifierType state, void *user_data) {
+    (void)user_data;
     controller_handle_command(keybindings_command_from_key_release(keyval, state));
 }
 
-void controller_handle_key_press(unsigned int keyval, GdkModifierType state) {
+void controller_handle_key_press(unsigned int keyval, GdkModifierType state, void *user_data) {
+    (void)user_data;
     if (!controller_handle_command(keybindings_command_from_key_press(keyval, state))) {
         uint32_t ch = gdk_keyval_to_unicode(keyval);
         if (g_unichar_isprint(ch)) {
