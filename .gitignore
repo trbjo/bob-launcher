@@ -1,5 +1,4 @@
 build/
-subprojects/
 .cache/
 subprojects/thread-manager/
 subprojects/file-monitor/

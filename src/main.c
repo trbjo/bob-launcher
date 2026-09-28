@@ -18,8 +18,17 @@ static int file_exists(const char *path) {
 }
 
 static int flag_hidden = 0;
-static enum { MODE_NONE, MODE_PLUGIN, MODE_OPEN } flag_mode = MODE_NONE;
+static int flag_quiet = 0;
+static enum {
+    MODE_NONE,
+    MODE_PLUGIN,
+    MODE_OPEN,
+    MODE_TOGGLE,
+    MODE_HIDDEN
+} flag_mode = MODE_NONE;
 static int flag_select_plugin = 0;
+static int flag_color_scheme_idx = 0;
+static int flag_color_scheme_value = 0;
 static char* flag_plugin_name = NULL;
 static char plugin_args[4096] = {0};
 static int plugin_args_len = 0;
@@ -149,9 +158,33 @@ static int parse_arguments(int argc, char **argv) {
             flag_select_plugin = i;
         } else if (strcmp(argv[i], "--hidden") == 0) {
             flag_hidden = i;
+        } else if (strcmp(argv[i], "--quiet") == 0) {
+            flag_quiet = i;
         } else if (strcmp(argv[i], "--environment") == 0) {
             flag_environment = i;
+        } else if (strcmp(argv[i], "--color-scheme") == 0) {
+            flag_color_scheme_idx = i;
         }
+    }
+
+    if (flag_color_scheme_idx) {
+        if (flag_color_scheme_idx + 1 >= argc) {
+            fprintf(stderr, "--color-scheme requires an argument (dark|light)\n");
+            return -1;
+        }
+        const char *v = argv[flag_color_scheme_idx + 1];
+        if (strcmp(v, "system") == 0) {
+            flag_color_scheme_value = 0;
+        } else if (strcmp(v, "dark") == 0) {
+            flag_color_scheme_value = 2;
+        } else if (strcmp(v, "light") == 0) {
+            flag_color_scheme_value = 3;
+        } else {
+            fprintf(stderr, "--color-scheme: invalid value '%s' (expected system|dark|light)\n", v);
+            return -1;
+        }
+        /* color-scheme is orthogonal to the main command — it goes out as a
+         * prefix frame at send time, not via flag_mode. */
     }
 
     // Handle environment variables if --environment flag is present
@@ -197,12 +230,23 @@ static int parse_arguments(int argc, char **argv) {
     }
 
     for (int i = 1; i < args_end; i++) {
-        if (i != flag_hidden) {
-            remaining_args[remaining_argc++] = argv[i];
-            if (flag_mode == MODE_NONE)
-                flag_mode = MODE_OPEN;
-        }
+        if (i == flag_hidden) continue;
+        if (i == flag_quiet) continue;
+        if (flag_color_scheme_idx &&
+            (i == flag_color_scheme_idx || i == flag_color_scheme_idx + 1)) continue;
+
+        remaining_args[remaining_argc++] = argv[i];
+        if (flag_mode == MODE_NONE)
+            flag_mode = MODE_OPEN;
     }
+
+    /* No other mode picked: the user invoked us with nothing meaningful,
+     * so the intent is the implicit toggle (or hidden no-op if --hidden).
+     * Keep this explicit instead of leaving it to a fallback in
+     * send_command_with_socket — every wire command should correspond to
+     * a parsed mode so adding a new mode can't silently skip A/H. */
+    if (flag_mode == MODE_NONE)
+        flag_mode = flag_hidden ? MODE_HIDDEN : MODE_TOGGLE;
 
     return 0;
 }
@@ -321,8 +365,15 @@ static int send_command_with_socket(int sock) {
             buffer[pos++] = '\0';
         }
 
+    } else if (flag_mode == MODE_TOGGLE) {
+        buffer[pos++] = 'A';
+
+    } else if (flag_mode == MODE_HIDDEN) {
+        buffer[pos++] = 'H';
+
     } else {
-        buffer[pos++] = flag_hidden ? 'H' : 'A';
+        fprintf(stderr, "send_command_with_socket: no mode set\n");
+        return -1;
     }
 
     uint32_t total_len = pos - 4;
@@ -330,6 +381,23 @@ static int send_command_with_socket(int sock) {
 
     ssize_t written = write(sock, buffer, pos);
     return (written == pos) ? 0 : -1;
+}
+
+/* Write a single color-scheme frame onto an already-open socket.
+ * Used at cold-start to prefix the user's command with an explicit
+ * color-scheme set, even when --color-scheme wasn't passed. */
+static int write_color_scheme_frame(int sock, uint8_t value) {
+    uint8_t buf[8];
+    uint32_t pos = 4;
+    buf[pos++] = 0;     /* token_len = 0, no XDG_ACTIVATION_TOKEN */
+    buf[pos++] = 'C';
+    buf[pos++] = value;
+
+    uint32_t total = pos - 4;
+    memcpy(buf, &total, 4);
+
+    ssize_t w = write(sock, buf, pos);
+    return (w == (ssize_t)pos) ? 0 : -1;
 }
 
 int main(int argc, char **argv) {
@@ -345,6 +413,8 @@ int main(int argc, char **argv) {
 
     int sock = connect_abstract_blocking();
     if (sock >= 0) {
+        if (flag_color_scheme_idx)
+            write_color_scheme_frame(sock, (uint8_t)flag_color_scheme_value);
         int result = send_command_with_socket(sock);
         close(sock);
         cleanup_resources();
@@ -376,7 +446,7 @@ int main(int argc, char **argv) {
             env[g_env_vars.count] = NULL;
         }
 
-        if (start_as_systemd_service(SERVICE_NAME, 1, argv, env) < 0) {
+        if (start_as_systemd_service(SERVICE_NAME, 1, argv, env, flag_quiet) < 0) {
             close(sync_sock);
             if (g_env_vars.count == 0) {
                 free_env_array(env);
@@ -404,8 +474,12 @@ int main(int argc, char **argv) {
 
         sock = connect_abstract_blocking();
         if (sock >= 0) {
-            flag_hidden = flag_hidden ? 0 : 1;
-            // reverse the hide
+            // if (!flag_color_scheme_idx)
+                write_color_scheme_frame(sock, 0);
+            /* Cancel out process B's stray toggle: flip our toggle/hidden
+             * mode. Other modes (e.g. MODE_COLOR_SCHEME) are left alone. */
+            if (flag_mode == MODE_HIDDEN)      flag_mode = MODE_TOGGLE;
+            else if (flag_mode == MODE_TOGGLE) flag_mode = MODE_HIDDEN;
             int result = send_command_with_socket(sock);
             close(sock);
             cleanup_resources();
@@ -441,11 +515,15 @@ int main(int argc, char **argv) {
         }
 
         close(listen_sock);
+
         int sock = connect_abstract_blocking();
         if (sock < 0) {
             fprintf(stderr, "Failed to connect to launcher\n");
             return 1;
         }
+
+        // if (!flag_color_scheme_idx)
+            write_color_scheme_frame(sock, 0);
 
         int result = send_command_with_socket(sock);
         close(sock);

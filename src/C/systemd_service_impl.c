@@ -235,8 +235,6 @@ int start_as_systemd_service_impl(const char* service_name, int argc, char **arg
         dbus_message_unref(reply);
     }
 
-    printf("Started transient service: %s\n", unit_name);
-
     dbus_message_unref(msg);
     dbus_connection_unref(conn);
     return 0;

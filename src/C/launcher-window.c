@@ -8,7 +8,7 @@
 #include <gdk/wayland/gdkwayland.h>
 #include <glib-unix.h>
 #include <wayland-client.h>
-#include <simple-keyboard.h>
+#include <simple-input.h>
 #include <simple-blur.h>
 #include <cairo.h>
 #include <math.h>
@@ -57,7 +57,7 @@ extern GdkRectangle *bob_launcher_utils_get_current_display_size(GtkWindow *wind
  * External keyboard handle
  * ============================================================================ */
 
-extern SimpleKeyboard *bob_launcher_app_keyboard;
+extern SimpleInput *bob_launcher_app_input;
 
 /* ============================================================================
  * LayerShell helpers
@@ -588,9 +588,12 @@ bob_launcher_launcher_window_ensure_surface(BobLauncherLauncherWindow *self)
 
     struct wl_surface *wayland_surface = gdk_wayland_surface_get_wl_surface(GDK_WAYLAND_SURFACE(mysurf));
 
-    keyboard_add_surface(bob_launcher_app_keyboard, wayland_surface,
-                         controller_handle_key_press,
-                         controller_handle_key_release,
+    /* The key callbacks are cast because controller.h declares them with
+     * GdkModifierType / unsigned int while simple-input expects
+     * SiModifierType / uint32_t; the underlying representations match. */
+    input_add_keyboard_surface(bob_launcher_app_input, wayland_surface,
+                         (si_key_callback)controller_handle_key_press,
+                         (si_key_callback)controller_handle_key_release,
                          controller_handle_focus_enter,
                          controller_handle_focus_leave,
                          controller_handle_compose, NULL);

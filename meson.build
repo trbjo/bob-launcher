@@ -12,9 +12,8 @@ project('io.github.trbjo.bob.launcher', 'vala', 'c',
 # meson setup build --buildtype=debug -Db_sanitize=address,undefined -Dc_args='-g -fno-omit-frame-pointer -O0 -falign-functions=16 -falign-loops=16'
 # meson setup build --buildtype=debug -Db_sanitize=thread            -Dc_args='-g -fno-omit-frame-pointer -O1'
 
-simple_keyboard = subproject('simple-keyboard')
-simple_keyboard_dep = simple_keyboard.get_variable('simple_keyboard_dep')
-simple_keyboard_vapi_dir = simple_keyboard.get_variable('simple_keyboard_dep').get_variable('vapi_dir')
+simple_input = subproject('simple-input')
+simple_input_dep = simple_input.get_variable('simple_input_dep')
 
 simple_blur = subproject('simple-blur')
 simple_blur_dep = simple_blur.get_variable('simple_blur_dep')
@@ -43,6 +42,8 @@ lib_sources = files(
 c_sources = files(
     'src/C/constants.h',
     'src/C/xxhash-override.h',
+    'src/C/hb-shaper.c',
+    'src/C/hb-shaper.h',
     'src/C/access-appinfo-props.c',
     'src/C/access-appinfo-props.h',
     'src/C/unknown-match.c',
@@ -140,7 +141,7 @@ base_deps = [
     dependency('librsvg-2.0'),
     dependency('wayland-client'),
     meson.get_compiler('vala').find_library('posix'),
-    simple_keyboard_dep,
+    simple_input_dep,
     simple_blur_dep,
     thread_manager_dep,
     file_monitor_dep,

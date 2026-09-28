@@ -3,6 +3,7 @@
 #include <gdk/gdk.h>
 #include <gio/gio.h>
 #include <controller.h>
+#include "icon-cache-service.h"
 
 /* ============================================================================
  * Type declarations
@@ -96,21 +97,12 @@ on_prepare(GtkDragSource *source,
     BobLauncherFileMatch *file_match = BOB_LAUNCHER_FILE_MATCH(match);
     BobLauncherIFile *ifile = BOB_LAUNCHER_IFILE(file_match);
 
-    /* Set drag icon */
-    GtkIconTheme *icon_theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
     gchar *icon_name = bob_launcher_match_get_icon_name(match);
-    GtkIconPaintable *paintable = gtk_icon_theme_lookup_icon(
-        icon_theme,
-        icon_name,
-        NULL,
-        48,
-        gtk_widget_get_scale_factor(data->widget),
-        GTK_TEXT_DIR_NONE,
-        GTK_ICON_LOOKUP_PRELOAD);
+    GdkPaintable *paintable = icon_cache_service_get_paintable_for_icon_name(
+        icon_name, 48, gtk_widget_get_scale_factor(data->widget));
     g_free(icon_name);
 
-    gtk_drag_source_set_icon(data->drag_source, GDK_PAINTABLE(paintable), 0, 0);
-    g_object_unref(paintable);
+    gtk_drag_source_set_icon(data->drag_source, paintable, 0, 0);
 
     /* Get URI for content providers */
     gchar *uri = bob_launcher_ifile_get_uri(ifile);

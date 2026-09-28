@@ -7,6 +7,7 @@
 G_BEGIN_DECLS
 
 void icon_cache_service_initialize();
+void icon_cache_service_shutdown(void);
 
 GdkPaintable* icon_cache_service_get_paintable_for_icon_name(const char *icon_name, int size, int scale);
 

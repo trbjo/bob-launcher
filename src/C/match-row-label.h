@@ -32,6 +32,13 @@ gboolean bob_launcher_match_row_label_lookup_click(BobLauncherMatchRowLabel *sel
                                                     ClickFunc *out_func,
                                                     void **out_target);
 
+/* Shift the label's horizontal scroll position by `dx` pixels.  Clamps to
+ * [0, children_width - widget_width] internally and queues an allocation.
+ * Live finger-scrubbing and kinetic deceleration both go through this
+ * (the label's own GtkEventControllerScroll drives the first, snapshot's
+ * kinetic_step drives the second). */
+void bob_launcher_match_row_label_scroll_by(BobLauncherMatchRowLabel *self, double dx);
+
 G_END_DECLS
 
 #endif /* BOB_LAUNCHER_MATCH_ROW_LABEL_H */

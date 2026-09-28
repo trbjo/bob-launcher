@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <gdk/wayland/gdkwayland.h>
+#include <pango/pangocairo.h>
 #include <glib-unix.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -12,6 +13,8 @@
 #include <unistd.h>
 
 #include "path-utils.h"
+#include "hb-shaper.h"
+#include <simple-input.h>
 
 static int file_exists(const char *path) {
     struct stat st;
@@ -31,16 +34,11 @@ extern void plugin_loader_initialize(void);
 extern void plugin_loader_shutdown(void);
 extern void state_initialize(void);
 extern void icon_cache_service_initialize(void);
+extern void icon_cache_service_shutdown(void);
 extern void keybindings_initialize(void);
 extern void css_initialize(void);
 extern void blur_teardown(void);
 extern bool blur_init(struct wl_display *display);
-
-typedef struct SimpleKeyboard SimpleKeyboard;
-extern SimpleKeyboard *keyboard_new(struct wl_display *display);
-extern void keyboard_destroy(SimpleKeyboard *kb);
-extern int keyboard_get_repeat_fd(SimpleKeyboard *kb);
-extern void keyboard_handle_repeat(SimpleKeyboard *kb);
 
 extern void signal_ready_if_needed(uint8_t *socket_array, size_t len);
 extern bool controller_select_plugin(const char *plugin, const char *query);
@@ -51,7 +49,7 @@ extern gboolean bob_launcher_bob_launch_context_launch_uris_internal(
     BobLauncherBobLaunchContext *self, GList *uris, char **env, int env_length);
 
 BobLauncherLauncherWindow *bob_launcher_app_main_win = NULL;
-SimpleKeyboard *bob_launcher_app_keyboard = NULL;
+SimpleInput *bob_launcher_app_input = NULL;
 static BobLauncherBobLaunchContext *launcher = NULL;
 static int listen_fd = -1;
 static uint listen_source_id = 0;
@@ -62,7 +60,7 @@ on_repeat_ready(gint fd, GIOCondition condition, gpointer user_data)
 {
     (void)fd;
     (void)condition;
-    keyboard_handle_repeat((SimpleKeyboard *)user_data);
+    input_handle_repeat((SimpleInput *)user_data);
     return G_SOURCE_CONTINUE;
 }
 
@@ -91,8 +89,13 @@ static void select_plugin(const char *plugin, const char *query) {
 }
 
 static void handle_connection(int client_fd) {
+    /* A connection may carry multiple length-prefixed frames (e.g. a
+     * color-scheme frame followed by the actual command); loop until the
+     * peer closes (read returns 0) or we see a malformed/short read. */
+    for (;;) {
     uint8_t len_buf[4];
     ssize_t n = read(client_fd, len_buf, 4);
+    if (n == 0) return;  /* clean EOF */
     if (n != 4) {
         g_warning("Failed to read message length, got %zd bytes", n);
         return;
@@ -140,6 +143,29 @@ static void handle_connection(int client_fd) {
     case 'A':
         toggle_visibility();
         break;
+
+    case 'C': {
+        if (offset >= msg_len) {
+            g_warning("Invalid color-scheme command");
+            break;
+        }
+        int gtk_scheme = (int)msg[offset++];
+
+        if (gtk_scheme == 0) {
+            GSettings *settings = g_settings_new("org.gnome.desktop.interface");
+            char *scheme = g_settings_get_string(settings, "color-scheme");
+            // GtkInterfaceColorScheme: 0=UNSUPPORTED, 1=DEFAULT, 2=DARK, 3=LIGHT
+            gtk_scheme = strcmp(scheme, "prefer-dark") == 0 ? 2 :
+                         strcmp(scheme, "prefer-light") == 0 ? 3 : 1;
+            g_free(scheme);
+            g_object_unref(settings);
+        } else if (gtk_scheme < 1 || gtk_scheme > 3) {
+            gtk_scheme = 1;
+        }
+
+        g_object_set(gtk_settings_get_default(), "gtk-interface-color-scheme", gtk_scheme, NULL);
+        break;
+    }
 
     case 'H':
         break;
@@ -238,6 +264,7 @@ static void handle_connection(int client_fd) {
 
     g_free(token);
     free(msg);
+    } /* for (;;) */
 }
 
 static bool on_incoming_connection(int fd, GIOCondition condition, gpointer data) {
@@ -288,9 +315,13 @@ static void initialize(int fd) {
     struct wl_display *wl_display = gdk_wayland_display_get_wl_display(gdk_display_get_default());
     bool has_blur = blur_init(wl_display);
 
-    bob_launcher_app_keyboard = keyboard_new(wl_display);
-    g_unix_fd_add(keyboard_get_repeat_fd(bob_launcher_app_keyboard), G_IO_IN,
-                  (GUnixFDSourceFunc)on_repeat_ready, bob_launcher_app_keyboard);
+    /* Keyboard only; pointer input stays with GTK.  NULL queues = default
+     * queue, dispatched by GDK's wayland source on the main thread. */
+    bob_launcher_app_input = input_new(wl_display, NULL, NULL);
+    g_unix_fd_add(input_get_repeat_fd(bob_launcher_app_input), G_IO_IN,
+                  (GUnixFDSourceFunc)on_repeat_ready, bob_launcher_app_input);
+
+    hb_shaper_init(pango_cairo_font_map_get_default());
 
     plugin_loader_initialize();
     state_initialize();
@@ -315,9 +346,10 @@ static void initialize(int fd) {
 }
 
 static void shutdown_app(void) {
-    keyboard_destroy(bob_launcher_app_keyboard);
-    bob_launcher_app_keyboard = NULL;
+    input_destroy(bob_launcher_app_input);
+    bob_launcher_app_input = NULL;
     blur_teardown();
+    icon_cache_service_shutdown();
     plugin_loader_shutdown();
 
     if (bob_launcher_app_main_win) {

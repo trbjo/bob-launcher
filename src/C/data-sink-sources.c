@@ -133,7 +133,7 @@ static void finalize_search(SearchContext* ctx) {
             thread_pool_run(merge_hashset_parallel_wrapper, task, free);
         }
     } else {
-        hashset_destroy(ctx->set);
+        hashset_unref(ctx->set);
     }
 
     free(ctx);

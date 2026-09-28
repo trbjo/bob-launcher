@@ -7,6 +7,6 @@
 #include <limits.h>
 #include <stddef.h>
 
-int start_as_systemd_service(const char* service_name, int argc, char **argv, char **environment);
+int start_as_systemd_service(const char* service_name, int argc, char **argv, char **environment, int quiet);
 
 #endif /* SYSTEMD_SERVICE_H */

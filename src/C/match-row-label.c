@@ -26,7 +26,6 @@ struct _BobLauncherMatchRowLabelPrivate {
     double scroll_position;
     int children_width;
     int current_widget_index;
-    double total_overhang;
 
     int visible_images;
     int visible_labels;
@@ -48,6 +47,13 @@ struct _BobLauncherMatchRowLabelPrivate {
     GskColorStop stops[4];
     GtkEventController *scroll_controller;
     GtkWidget *next_expected_child;
+
+    /* Decaying kinetic velocity left over from the last "decelerate"
+     * signal.  Consumed inside snapshot: each frame we apply a fraction
+     * and decay the remainder.  Self-extinguishes when it falls below
+     * threshold.  Pre-hack pattern; avoids needing a separate tick
+     * callback for label kinetic. */
+    double total_overhang;
 
     ClickBinding *click_bindings;
     int click_bindings_count;
@@ -120,8 +126,8 @@ bob_launcher_match_row_label_get_type(void)
     return bob_launcher_match_row_label_type_id__once;
 }
 
-static void
-update_scroll_position(BobLauncherMatchRowLabel *self, double dx)
+void
+bob_launcher_match_row_label_scroll_by(BobLauncherMatchRowLabel *self, double dx)
 {
     BobLauncherMatchRowLabelPrivate *priv = self->priv;
     priv->scroll_position = MAX(0, priv->scroll_position + dx);
@@ -140,20 +146,43 @@ update_scroll_position(BobLauncherMatchRowLabel *self, double dx)
 }
 
 static gboolean
-on_scroll(GtkEventControllerScroll *controller, double x, double y, gpointer user_data)
+on_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data)
 {
+    (void)controller; (void)dy;
     BobLauncherMatchRowLabel *self = BOB_LAUNCHER_MATCH_ROW_LABEL(user_data);
     self->priv->total_overhang = 0;
-    update_scroll_position(self, x);
+    bob_launcher_match_row_label_scroll_by(self, dx);
     return TRUE;
 }
 
 static void
-on_decelerate(GtkEventControllerScroll *controller, double x, double y, gpointer user_data)
+on_decelerate(GtkEventControllerScroll *controller, double vel_x, double vel_y, gpointer user_data)
 {
+    (void)controller; (void)vel_y;
     BobLauncherMatchRowLabel *self = BOB_LAUNCHER_MATCH_ROW_LABEL(user_data);
-    self->priv->total_overhang = x;
+    self->priv->total_overhang = vel_x;
     gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+/* One frame's worth of kinetic decay.  Consumes 2% of the remaining
+ * velocity per frame; self-extinguishes below 0.15 pixels/frame.  Each
+ * step calls scroll_by, which queues an allocate, which schedules
+ * another snapshot — the loop is self-sustaining as long as overhang
+ * stays above threshold. */
+static void
+kinetic_step(BobLauncherMatchRowLabel *self)
+{
+    BobLauncherMatchRowLabelPrivate *priv = self->priv;
+    if (priv->total_overhang == 0.0)
+        return;
+
+    double momentum = priv->total_overhang * 0.02;
+    priv->total_overhang -= momentum;
+    if (fabs(priv->total_overhang) > 0.15) {
+        bob_launcher_match_row_label_scroll_by(self, momentum);
+    } else {
+        priv->total_overhang = 0.0;
+    }
 }
 
 static void
@@ -174,11 +203,16 @@ bob_launcher_match_row_label_instance_init(BobLauncherMatchRowLabel *self, gpoin
     priv->height = -1;
     priv->next_expected_child = NULL;
 
+    /* Horizontal kinetic scroll for overflowing rich descriptions.
+     * Child labels in nested descriptions get their controller removed
+     * in acquire_child_label so the OUTERMOST label captures the swipe;
+     * inner labels are sized to fit their content and would refuse the
+     * scroll anyway. */
     priv->scroll_controller = gtk_event_controller_scroll_new(
         GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL | GTK_EVENT_CONTROLLER_SCROLL_KINETIC);
     gtk_widget_add_controller(GTK_WIDGET(self), priv->scroll_controller);
+    g_signal_connect(priv->scroll_controller, "scroll",     G_CALLBACK(on_scroll),     self);
     g_signal_connect(priv->scroll_controller, "decelerate", G_CALLBACK(on_decelerate), self);
-    g_signal_connect(priv->scroll_controller, "scroll", G_CALLBACK(on_scroll), self);
 
     priv->images = g_ptr_array_new_with_free_func(g_object_unref);
     priv->labels = g_ptr_array_new_with_free_func(g_object_unref);
@@ -343,6 +377,10 @@ acquire_child_label(BobLauncherMatchRowLabel *self)
     } else {
         child = g_object_new(BOB_LAUNCHER_TYPE_MATCH_ROW_LABEL, NULL);
 
+        /* Strip the child's scroll controller so the outermost label
+         * captures the swipe — inner labels fit their content and would
+         * refuse the scroll anyway, but having a controller on them lets
+         * GTK route the event to the wrong place. */
         if (child->priv->scroll_controller != NULL) {
             gtk_widget_remove_controller(GTK_WIDGET(child), child->priv->scroll_controller);
             child->priv->scroll_controller = NULL;
@@ -576,6 +614,7 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
             gtk_widget_snapshot_child(widget, sibling, snapshot);
             sibling = gtk_widget_get_next_sibling(sibling);
         }
+        kinetic_step(self);
         return;
     }
 
@@ -620,14 +659,7 @@ bob_launcher_match_row_label_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 
     gtk_snapshot_pop(snapshot);
 
-    double momentum = priv->total_overhang * 0.02;
-    priv->total_overhang -= momentum;
-    if (fabs(priv->total_overhang) > 0.15) {
-        update_scroll_position(self, momentum);
-    } else {
-        priv->total_overhang = 0.0;
-    }
-
+    kinetic_step(self);
 }
 
 static void

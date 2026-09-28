@@ -10,7 +10,7 @@
 
 typedef int (*start_as_systemd_service_impl_func)(const char*, int, char**, char**);
 
-int start_as_systemd_service(const char* service_name, int argc, char **argv, char **environment) {
+int start_as_systemd_service(const char* service_name, int argc, char **argv, char **environment, int quiet) {
     // Create memfd and write embedded library
     int fd = memfd_create("libsystemd_service_impl", MFD_CLOEXEC);
     if (fd == -1) {
@@ -45,6 +45,10 @@ int start_as_systemd_service(const char* service_name, int argc, char **argv, ch
 
     // Call the implementation
     int result = impl(service_name, argc, argv, environment);
+
+    if (result == 0 && !quiet) {
+        printf("Started transient service: %s\n", service_name);
+    }
 
     dlclose(handle);
     return result;

@@ -262,7 +262,7 @@ void controller_execute(bool should_hide) {
         HashSet* result_provider = data_sink_search_for_targets("", action, events_increment());
 
         if (result_provider->size == 0) {
-            hashset_destroy(result_provider);
+            hashset_unref(result_provider);
             return;
         }
 

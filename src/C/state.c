@@ -192,7 +192,7 @@ BobLauncherMatch* state_selected_target() {
 
 int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, int selected_index) {
     if (new_provider->event_id < state_providers[state_sf]->event_id) {
-        thread_pool_run((TaskFunc)hashset_destroy, new_provider, NULL);
+        thread_pool_run((TaskFunc)hashset_unref, new_provider, NULL);
         return 0;
     }
 
@@ -206,7 +206,7 @@ int state_update_provider(BobLauncherSearchingFor what, HashSet* new_provider, i
 
     HashSet* old = state_providers[what];
     state_providers[what] = new_provider;
-    thread_pool_run((TaskFunc)hashset_destroy, old, NULL);
+    thread_pool_run((TaskFunc)hashset_unref, old, NULL);
 
     return 1;
 }
@@ -466,7 +466,7 @@ int state_get_cursor_position(void) {
 void state_cleanup() {
     // Free all resources
     for (int i = 0; i < bob_launcher_SEARCHING_FOR_COUNT; i++) {
-        hashset_destroy(state_providers[i]);
+        hashset_unref(state_providers[i]);
         string_builder_free(state_queries[i]);
     }
 

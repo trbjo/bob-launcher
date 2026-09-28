@@ -66,6 +66,7 @@ static void reset_hashset(HashSet* set) {
         }
     }
 
+    atomic_store(&set->ref_count, 0);
     atomic_store(&set->size, INITIAL_UNFINISHED);
     atomic_store(&set->hash_size, 0);
     atomic_store(&set->global_index_counter, 0);
@@ -129,6 +130,7 @@ static HashSet* hashset_new(int event_id) {
 
     memset(set->unfinished_queue, 0, sizeof(set->unfinished_queue));
 
+    atomic_init(&set->ref_count, 0);
     atomic_init(&set->size, INITIAL_UNFINISHED);
     atomic_init(&set->hash_size, 0);
     atomic_init(&set->global_index_counter, 0);
@@ -141,8 +143,9 @@ static HashSet* hashset_new(int event_id) {
 
 HashSet* hashset_create(int event_id) {
     HashSet* set = hashset_reuse(event_id);
-    if (set) return set;
-    return hashset_new(event_id);
+    if (!set) set = hashset_new(event_id);
+    atomic_store(&set->ref_count, 1);
+    return set;
 }
 
 ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless) {
@@ -298,7 +301,14 @@ int merge_hashset_parallel(HashSet* set, int tid) {
     if (barrier_check_last(set, &bi)) {
         set->score_items = dest;
         set->matches = (BobLauncherMatch**)(set->combined + n);
-        atomic_fetch_add_explicit(&set->size, n - local_dups - INITIAL_UNFINISHED, memory_order_release);
+
+        // Clear the materialization slots so "matches[i] != NULL" means
+        // "materialized" and NULL is a valid spin sentinel.
+        // n covers every index any reader can reach (size <= n).
+        memset(set->matches, 0, n * sizeof(BobLauncherMatch*));
+
+        atomic_fetch_add_explicit(&set->size, n - local_dups - INITIAL_UNFINISHED,
+                                  memory_order_release);   // release pairs with the acquire load of size in get_match_at
         return 1;
     } else if (local_dups) {
         atomic_fetch_sub_explicit(&set->size, local_dups, memory_order_release);
@@ -321,25 +331,34 @@ void container_return_sheet(HashSet* set, ResultContainer* container) {
     ((void*)(((packed) & FOURTY_THREE_BITS) << 4))
 
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int index) {
-    if (atomic_load(&set->size) <= index) return NULL;
+    if (!set) return NULL;
+    if (atomic_load_explicit(&set->size, memory_order_acquire) <= index)
+        return NULL;
 
-    uint32_t packed = set->score_items[index];
-    if (packed != UINT32_MAX) {
-        set->score_items[index] = UINT32_MAX;
+    _Atomic(BobLauncherMatch*) *mslot = (_Atomic(BobLauncherMatch*) *)&set->matches[index];
+    _Atomic uint32_t           *sslot = (_Atomic uint32_t *)          &set->score_items[index];
 
-        int sheet_idx = SHEET_IDX(packed);
-        int item_idx = ITEM_IDX(packed);
-        uint64_t match_data = set->sheet_pool[sheet_idx]->match_pool[item_idx];
+    BobLauncherMatch *m = atomic_load_explicit(mslot, memory_order_acquire);
+    if (m) return m;
 
-        FuncPair pair = get_func_pair(match_data);
-        void* user_data = GET_FACTORY_USER_DATA(match_data);
-        set->matches[index] = ((MatchFactory)pair.match)(user_data);
+    uint32_t prev = atomic_exchange_explicit(sslot, UINT32_MAX, memory_order_acq_rel);
+
+    if (prev == UINT32_MAX) {
+        while ((m = atomic_load_explicit(mslot, memory_order_acquire)) == NULL)
+            __builtin_ia32_pause();
+        return m;
     }
 
-    return set->matches[index];
-}
+    uint64_t match_data = set->sheet_pool[SHEET_IDX(prev)]->match_pool[ITEM_IDX(prev)];
+    FuncPair pair       = get_func_pair(match_data);
+    void    *user_data  = GET_FACTORY_USER_DATA(match_data);
 
-void hashset_destroy(HashSet* set) {
+    m = ((MatchFactory)pair.match)(user_data);
+
+    atomic_store_explicit(mslot, m, memory_order_release);
+    return m;
+}
+static void hashset_destroy(HashSet* set) {
     if (!set) return;
 
     int old_capacity = atomic_exchange(&set->size, -1);
@@ -359,7 +378,7 @@ void hashset_destroy(HashSet* set) {
     }
 
     for (int i = 0; i < old_capacity; i++) {
-        if (set->score_items[i] == UINT32_MAX) {
+        if (set->matches[i] != NULL) {
             g_object_unref(set->matches[i]);
         }
     }
@@ -377,4 +396,16 @@ void hashset_destroy(HashSet* set) {
     free(set->hash_items);
     free(set->counts);
     free(set);
+}
+
+HashSet* hashset_ref(HashSet* set) {
+    atomic_fetch_add(&set->ref_count, 1);
+    return set;
+}
+
+void hashset_unref(HashSet* set) {
+    if (!set) return;
+    if (atomic_fetch_sub(&set->ref_count, 1) == 1) {
+        hashset_destroy(set);
+    }
 }

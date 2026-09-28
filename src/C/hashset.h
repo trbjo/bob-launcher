@@ -32,6 +32,7 @@ typedef struct {
     uint32_t* combined;
     BobLauncherMatch** matches;
     uint32_t* score_items;
+    atomic_int ref_count;
     atomic_int size;
     char _pad1[24];
 
@@ -47,7 +48,6 @@ typedef struct {
 } HashSet;
 
 HashSet* hashset_create(int event_id);
-void hashset_destroy(HashSet* set);
 
 void container_return_sheet(HashSet* set, ResultContainer* container);
 void hashset_merge_new(HashSet* set, ResultContainer* current);
@@ -56,6 +56,10 @@ void hashset_prepare_new(HashSet* hashset);
 
 int merge_hashset_parallel(HashSet* set, int tid);
 #define hashset_prepare_new(set) merge_hashset_parallel(set, 0)
+
+HashSet* hashset_ref(HashSet* set);
+void hashset_unref(HashSet* set);
+
 
 ResultContainer* hashset_create_handle(HashSet* hashset, const char* query, int16_t bonus, needle_info* string_info, needle_info* string_info_spaceless);
 BobLauncherMatch* hashset_get_match_at(HashSet* set, int n);
